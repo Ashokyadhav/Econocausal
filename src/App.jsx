@@ -1,5 +1,13 @@
-import { useState } from 'react'
+﻿import { useEffect, useState } from 'react'
 import './App.css'
+
+import {
+  getProducts,
+  createProduct,
+  updateProduct,
+  deleteProduct,
+} from './api/products'
+
 
 const initialProducts = [
   {
@@ -210,10 +218,10 @@ function App() {
   }
 
   const navItems = [
-    { name: 'Overview', icon: '◫' },
-    { name: 'Products', icon: '▦' },
-    { name: 'Pricing Analysis', icon: '↗' },
-    { name: 'DML Model', icon: '◎' },
+    { name: 'Overview', icon: 'â—«' },
+    { name: 'Products', icon: 'â–¦' },
+    { name: 'Pricing Analysis', icon: 'â†—' },
+    { name: 'DML Model', icon: 'â—Ž' },
   ]
 
   return (
@@ -267,7 +275,7 @@ function App() {
               <span>Analyst workspace</span>
             </div>
 
-            <span className="profile-menu">•••</span>
+            <span className="profile-menu">â€¢â€¢â€¢</span>
           </div>
         </div>
       </aside>
@@ -292,7 +300,7 @@ function App() {
                   setShowNotifications((current) => !current)
                 }
               >
-                ♧
+                â™§
               </button>
 
               {showNotifications && (
@@ -332,7 +340,7 @@ function App() {
                   className="primary-button"
                   onClick={exportReport}
                 >
-                  ↓ Export report
+                  â†“ Export report
                 </button>
               </section>
 
@@ -341,7 +349,7 @@ function App() {
                   title="Products monitored"
                   value={products.length.toLocaleString('en-IN')}
                   change="Current catalog"
-                  icon="▤"
+                  icon="â–¤"
                   color="purple"
                 />
 
@@ -349,7 +357,7 @@ function App() {
                   title="Average selling price"
                   value={formatCurrency(averagePrice)}
                   change="Sample product data"
-                  icon="₹"
+                  icon="â‚¹"
                   color="blue"
                 />
 
@@ -357,7 +365,7 @@ function App() {
                   title="Total inventory"
                   value={totalStock.toLocaleString('en-IN')}
                   change="Units in catalog"
-                  icon="↗"
+                  icon="â†—"
                   color="green"
                 />
 
@@ -365,7 +373,7 @@ function App() {
                   title="High-demand products"
                   value={highDemandCount}
                   change="Current catalog"
-                  icon="◎"
+                  icon="â—Ž"
                   color="orange"
                 />
               </section>
@@ -440,7 +448,7 @@ function App() {
                       <p>Double Machine Learning</p>
                     </div>
 
-                    <span className="model-icon">◎</span>
+                    <span className="model-icon">â—Ž</span>
                   </div>
 
                   <span className="placeholder-badge">
@@ -475,7 +483,7 @@ function App() {
                     className="text-button"
                     onClick={() => setActivePage('DML Model')}
                   >
-                    Explore model details →
+                    Explore model details â†’
                   </button>
                 </div>
               </section>
@@ -515,7 +523,7 @@ function App() {
                     className="primary-button"
                     onClick={exportReport}
                   >
-                    ↓ Export CSV
+                    â†“ Export CSV
                   </button>
                 </div>
               </div>
@@ -569,7 +577,7 @@ function App() {
                     <input
                       type="number"
                       name="price"
-                      placeholder="Price (₹)"
+                      placeholder="Price (â‚¹)"
                       min="1"
                       step="1"
                       value={newProduct.price}
@@ -673,9 +681,9 @@ function App() {
                                   updatePrice(product.id, -100)
                                 }
                                 aria-label={`Decrease ${product.name} price`}
-                                title="Decrease price by ₹100"
+                                title="Decrease price by â‚¹100"
                               >
-                                −
+                                âˆ’
                               </button>
 
                               <button
@@ -684,7 +692,7 @@ function App() {
                                   updatePrice(product.id, 100)
                                 }
                                 aria-label={`Increase ${product.name} price`}
-                                title="Increase price by ₹100"
+                                title="Increase price by â‚¹100"
                               >
                                 +
                               </button>
@@ -730,7 +738,7 @@ function App() {
                   className="primary-button"
                   onClick={exportReport}
                 >
-                  ↓ Export CSV
+                  â†“ Export CSV
                 </button>
               </div>
 
@@ -874,8 +882,8 @@ function App() {
           )}
 
           <footer className="page-footer">
-            <span>EconoCausal · Intelligent Pricing</span>
-            <span>Frontend prototype · Sample data only</span>
+            <span>EconoCausal Â· Intelligent Pricing</span>
+            <span>Frontend prototype Â· Sample data only</span>
           </footer>
         </div>
       </main>
@@ -902,3 +910,4 @@ function MetricCard({ title, value, change, icon, color }) {
 }
 
 export default App
+
