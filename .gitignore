@@ -40,3 +40,9 @@ env/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+
+# Local App.jsx backups
+src/App.backup.jsx
+src/App.before-cleanup.jsx
+src/App.before-import-fix.jsx
+src/App.before-product-integration.jsx
