@@ -46,3 +46,6 @@ src/App.backup.jsx
 src/App.before-cleanup.jsx
 src/App.before-import-fix.jsx
 src/App.before-product-integration.jsx
+
+src/App.jsx.backup
+src/api/products.js.backup
