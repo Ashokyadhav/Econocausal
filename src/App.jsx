@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import './App.css'
 
 import {
@@ -86,7 +86,35 @@ function App() {
   const [showAddProduct, setShowAddProduct] = useState(false)
   const [newProduct, setNewProduct] = useState(emptyProduct)
   const [productMessage, setProductMessage] = useState('')
+  const [apiAvailable, setApiAvailable] = useState(false)
+  const [isSavingProduct, setIsSavingProduct] = useState(false)
 
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadProducts() {
+      try {
+        const data = await getProducts()
+        if (cancelled) return
+
+        setProducts(data.map((product) => ({
+          ...product,
+          demand: product.demand || 'Medium',
+          stock: Number.isInteger(product.stock) ? product.stock : 0,
+        })))
+        setApiAvailable(true)
+        setProductMessage('')
+      } catch (error) {
+        if (!cancelled) {
+          setApiAvailable(false)
+          setProductMessage(`Backend unavailable; showing demo data. ${error.message}`)
+        }
+      }
+    }
+
+    loadProducts()
+    return () => { cancelled = true }
+  }, [])
   const filteredProducts = products.filter((product) =>
     `${product.name} ${product.category}`
       .toLowerCase()
@@ -109,21 +137,33 @@ function App() {
     (product) => product.demand === 'High',
   ).length
 
-  const updatePrice = (id, amount) => {
-    setProducts((currentProducts) =>
-      currentProducts.map((product) =>
-        product.id === id
-          ? {
-              ...product,
-              price: Math.max(1, product.price + amount),
-            }
-          : product,
-      ),
-    )
+  const updatePrice = async (id, amount) => {
+    const existing = products.find((product) => product.id === id)
+    if (!existing) return
 
+    const updatedPrice = Math.max(1, Number(existing.price) + amount)
     setProductMessage('')
-  }
 
+    if (apiAvailable) {
+      try {
+        await updateProduct(id, {
+          name: existing.name,
+          category: existing.category,
+          price: updatedPrice,
+          cost: Number(existing.cost ?? 0),
+          description: existing.description ?? null,
+        })
+      } catch (error) {
+        setProductMessage(`Price update failed: ${error.message}`)
+        return
+      }
+    }
+
+    setProducts((current) => current.map((product) =>
+      product.id === id ? { ...product, price: updatedPrice } : product
+    ))
+    setProductMessage(`${existing.name} price updated.`)
+  }
   const handleNewProductChange = (event) => {
     const { name, value } = event.target
 
@@ -133,7 +173,7 @@ function App() {
     }))
   }
 
-  const addProduct = (event) => {
+  const addProduct = async (event) => {
     event.preventDefault()
     setProductMessage('')
 
@@ -145,36 +185,51 @@ function App() {
       setProductMessage('Please enter a product name.')
       return
     }
-
     if (!Number.isFinite(price) || price <= 0) {
       setProductMessage('Price must be greater than zero.')
       return
     }
-
     if (!Number.isInteger(stock) || stock < 0) {
       setProductMessage('Stock must be a whole number of zero or more.')
       return
     }
 
-    const product = {
-      id: Date.now(),
+    const payload = {
       name,
       category: newProduct.category,
       price,
-      demand: newProduct.demand,
-      stock,
+      cost: 0,
+      description: null,
     }
 
-    setProducts((currentProducts) => [
-      ...currentProducts,
-      product,
-    ])
+    setIsSavingProduct(true)
+    try {
+      let savedProduct
 
-    setNewProduct({ ...emptyProduct })
-    setShowAddProduct(false)
-    setProductMessage(`${name} was added successfully.`)
+      if (apiAvailable) {
+        savedProduct = await createProduct(payload)
+      } else {
+        savedProduct = { id: Date.now(), ...payload }
+      }
+
+      setProducts((current) => [
+        ...current,
+        { ...savedProduct, demand: newProduct.demand, stock },
+      ])
+
+      setNewProduct({ ...emptyProduct })
+      setShowAddProduct(false)
+      setProductMessage(
+        apiAvailable
+          ? `${name} saved to backend.`
+          : `${name} added to demo data only; backend is unavailable.`,
+      )
+    } catch (error) {
+      setProductMessage(`Could not save product: ${error.message}`)
+    } finally {
+      setIsSavingProduct(false)
+    }
   }
-
   const cancelAddProduct = () => {
     setShowAddProduct(false)
     setNewProduct({ ...emptyProduct })
