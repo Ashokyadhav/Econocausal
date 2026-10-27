@@ -49,3 +49,5 @@ src/App.before-product-integration.jsx
 
 src/App.jsx.backup
 src/api/products.js.backup
+src/App.jsx.*.backup
+src/api/products.js.*.backup
