@@ -344,7 +344,7 @@ function App() {
           </div>
 
           <div className="topbar-actions">
-            <span className="demo-badge">DEMO DATA</span>
+            <span className={`demo-badge ${apiAvailable ? 'api-connected' : ''}`}>{apiAvailable ? 'API CONNECTED' : 'DEMO DATA'}</span>
 
             <div className="notification-wrapper">
               <button
@@ -556,8 +556,7 @@ function App() {
                   <h1>Products</h1>
 
                   <p className="page-description">
-                    Manage your catalog, search products, and adjust demo
-                    prices.
+                    Manage your catalog, search products, and adjust prices.
                   </p>
                 </div>
 
@@ -664,8 +663,9 @@ function App() {
                     <button
                       type="submit"
                       className="primary-button"
+                      disabled={isSavingProduct}
                     >
-                      Save Product
+                      {isSavingProduct ? 'Saving...' : 'Save Product'}
                     </button>
 
                     <button
@@ -766,8 +766,9 @@ function App() {
                 </div>
 
                 <p className="demo-note">
-                  Products and price changes currently use local demo
-                  state. They are not saved to a backend or database.
+                  {apiAvailable
+                    ? 'Product records and price changes are connected to the backend. Demand and stock remain demo-only fields until the API schema supports them.'
+                    : 'The backend is not connected. Product changes are held in local demo state and will not persist after refresh.'}
                 </p>
               </div>
             </section>
