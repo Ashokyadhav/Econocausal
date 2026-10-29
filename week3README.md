@@ -75,4 +75,29 @@ pip install pandas numpy matplotlib seaborn scikit-learn
 - **Data Preprocessing:** Performed comprehensive data cleaning and structured the data for modeling.
 - **DAG Diagram:** Designed and finalized the DAG diagram for the workflow pipeline.
 -
--
+-🚀 Week 3 Progress: Data Validation, Preprocessing & Causal Analysis(complete work process)
+
+This week focused on validating the selected dataset, documenting data quality checks, and preparing supporting documentation for the Dynamic Pricing via Double Machine Learning (DML) project.
+
+📋 Key Updates & Contributions
+
+- Dataset Validation:
+  
+  - Reviewed the dataset schema and documented data quality checks.
+  - Recorded findings related to missing values, duplicate records, and data consistency based on validation results.
+
+- Data Preprocessing:
+  
+  - Added the data preprocessing notebook to support the project's data preparation workflow.
+  - Documented the preprocessing work completed so far.
+
+- Causal Analysis Documentation:
+  
+  - Created and uploaded a DAG diagram illustrating the assumed causal relationships.
+  - Documented the proposed treatment, outcome, candidate control variables, and potential confounding risks.
+  - Identified causal assumptions that require confirmation with the team.
+
+🛠️ Commit & Branch Workflow
+
+- Maintained project updates in the assigned working branch.
+- Committed relevant documentation and project artifacts as work progressed.
