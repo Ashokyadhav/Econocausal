@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 
@@ -12,59 +11,53 @@ st.title("EconoCausal")
 st.subheader("Dynamic Pricing via Double Machine Learning")
 
 st.info(
-    "Dashboard prototype. Product and demand values below are "
-    "sample data, not validated research results."
+    "Research dashboard: preliminary DML results. "
+    "The estimate below must be validated before causal interpretation."
 )
 
-# Sample product data for testing the dashboard
-products = pd.DataFrame({
-    "Product": [
-        "Wireless Headphones",
-        "Running Shoes",
-        "Smart Watch",
-        "Travel Backpack",
-        "Bluetooth Speaker"
-    ],
-    "Category": [
-        "Electronics",
-        "Fashion",
-        "Electronics",
-        "Accessories",
-        "Electronics"
-    ],
-    "Price (INR)": [2499, 3299, 4199, 1599, 1899],
-    "Demand": ["High", "Medium", "High", "Low", "Medium"]
-})
-
-st.header("Dashboard Overview")
+st.header("Double Machine Learning Results")
 
 col1, col2, col3 = st.columns(3)
 
 with col1:
-    st.metric("Sample Products", len(products))
+    st.metric("Estimated Price Effect", "-89.73")
 
 with col2:
-    st.metric(
-        "Average Sample Price",
-        f"₹{products['Price (INR)'].mean():,.0f}"
-    )
+    st.metric("Standard Error", "2.41")
 
 with col3:
-    st.metric(
-        "High-Demand Sample Products",
-        int((products["Demand"] == "High").sum())
-    )
+    st.metric("P-value", "< 0.001")
 
-st.header("Sample Product Catalog")
-st.dataframe(products, use_container_width=True)
+st.subheader("Model Details")
 
-st.header("DML Model Status")
+results = pd.DataFrame({
+    "Item": [
+        "Dataset",
+        "Treatment",
+        "Outcome",
+        "Model",
+        "95% Confidence Interval"
+    ],
+    "Details": [
+        "Cleaned WCER2",
+        "d_PRICE (change in price)",
+        "d_MOVE (change in sales volume)",
+        "DoubleMLPLR",
+        "[-94.45, -85.00]"
+    ]
+})
 
-st.write("Treatment: Price")
-st.write("Outcome: Demand (proposed dashboard example)")
+st.dataframe(results, use_container_width=True, hide_index=True)
+
 st.warning(
-    "A validated DML estimate and confidence interval "
-    "are not connected yet. No causal result is reported."
+    "These values are from the existing model summary. "
+    "Confirm the model specification and data preparation before "
+    "reporting the estimate as a causal effect. "
+    "This dashboard does not rerun the model."
+)
+
+st.caption(
+    "EconoCausal | Dynamic Pricing via Double Machine Learning"
 )
 
 st.caption(
