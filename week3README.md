@@ -101,3 +101,17 @@ This week focused on validating the selected dataset, documenting data quality c
 
 - Maintained project updates in the assigned working branch.
 - Committed relevant documentation and project artifacts as work progressed.
+
+week 3 progress# today's work
+## 🔍 Today's Focus: Schema & Outlier Checks
+
+Focused on reviewing dataset quality and strengthening validation rules for the Dynamic Pricing via Double Machine Learning (DML) pipeline.
+
+### Key Activities
+- Reviewed data type consistency in the `PRICE` and `MOVE` columns.
+- Examined zero-value occurrences and potential boundary conditions.
+- Reviewed missing-value indicators and their handling during data validation.
+- Checked whether the dataset structure is suitable for the next preprocessing stage.
+
+> **Status:** Schema review completed. Prepared for feature engineering.
+
