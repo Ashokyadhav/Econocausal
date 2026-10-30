@@ -1,276 +1,663 @@
 """
-EconoCausal - Double Machine Learning (DML) Engine
-Implements Chernozhukov et al. (2018) Neyman-orthogonal score estimation
-with K-fold cross-fitting for multi-tiered pricing treatments ($0, $10, $20).
+============================================================
+ECONOCAUSAL: DOUBLE MACHINE LEARNING ENGINE
+============================================================
+
+Project:
+Dynamic Pricing via Double Machine Learning
+
+Methodology:
+Partially Linear Double Machine Learning
+Neyman Orthogonalization
+K-Fold Cross-Fitting
+
+Treatment:
+PRICE (Continuous)
+
+Outcome:
+MOVE (Product Demand)
+
+Developed for:
+EconoCausal Dynamic Pricing Project
+============================================================
 """
 
 import numpy as np
 import pandas as pd
-from typing import Dict, Any, List, Tuple, Optional
+
+from typing import List, Dict, Any
+
+from sklearn.base import clone
 from sklearn.model_selection import KFold
-from sklearn.ensemble import GradientBoostingRegressor, GradientBoostingClassifier, RandomForestRegressor
-from sklearn.linear_model import Ridge, LogisticRegression
-from sklearn.preprocessing import StandardScaler
+from sklearn.ensemble import (
+    ExtraTreesRegressor,
+    RandomForestRegressor
+)
+from sklearn.impute import SimpleImputer
+from sklearn.preprocessing import (
+    StandardScaler,
+    OneHotEncoder
+)
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+
 from scipy import stats
+
+from sklearn.linear_model import Ridge
 
 
 class DoubleMachineLearningEngine:
+
     """
-    Chernozhukov Double Machine Learning Engine for Heterogeneous Treatment Effects.
-    Eliminates regularization bias and confounding bias through:
-    1. Cross-fitting (K=5 folds)
-    2. Neyman-orthogonal score residualization:
-       tilde(Y) = Y - E[Y | X]
-       tilde(T_d) = T_d - E[T_d | X]
-    3. Robinson transformation / R-Learner causal effect estimation:
-       tilde(Y) = sum_d tau_d(X) * tilde(T_d) + error
+    Continuous Treatment Double Machine Learning Engine.
+
+    Treatment:
+        PRICE
+
+    Outcome:
+        MOVE
+
+    Estimates:
+        1. Average Treatment Effect (ATE)
+        2. Conditional Average Treatment Effect (CATE)
+        3. Confidence Intervals
+        4. Statistical Significance
+        5. Model Diagnostics
+
+    Uses:
+        K-Fold Cross-Fitting
+        Neyman Orthogonal Scores
+        Partially Linear Regression
     """
 
-    def __init__(self, n_folds: int = 5, random_seed: int = 42, l2_reg: float = 1.0):
+    # --------------------------------------------------------
+    # 1. INITIALIZATION
+    # --------------------------------------------------------
+
+    def __init__(
+        self,
+        n_folds=5,
+        random_seed=42,
+        l2_reg=1.0
+    ):
+
         self.n_folds = n_folds
         self.random_seed = random_seed
         self.l2_reg = l2_reg
-        self.scaler = StandardScaler()
-        self.feature_names: List[str] = []
-        self.treatments = [10, 20]  # Baseline is 0
+
         self.is_fitted = False
 
-        # Results containers
-        self.ate_results: Dict[int, Dict[str, float]] = {}
-        self.cate_coefficients: Dict[int, np.ndarray] = {}
-        self.diagnostics: Dict[str, Any] = {}
-        self.cov_matrix: Optional[np.ndarray] = None
+        self.feature_names = []
+        self.encoded_feature_names = []
 
-    def fit(self, df: pd.DataFrame, feature_cols: List[str], outcome_col: str = "converted", treatment_col: str = "discount_offered") -> "DoubleMachineLearningEngine":
-        """
-        Fits the DML engine using K-fold cross-fitting.
-        """
-        self.feature_names = feature_cols
-        X_raw = df[feature_cols].values
-        Y = df[outcome_col].values.astype(float)
-        T = df[treatment_col].values
+        self.ate_results = {}
+        self.diagnostics = {}
+
+        self.cate_model = None
+        self.preprocessor = None
+
+        self.feature_matrix_columns = None
+
+    # --------------------------------------------------------
+    # 2. DATA VALIDATION
+    # --------------------------------------------------------
+
+    def validate_data(
+        self,
+        df,
+        feature_cols,
+        outcome_col="MOVE",
+        treatment_col="PRICE"
+    ):
+
+        required = (
+            feature_cols +
+            [outcome_col, treatment_col]
+        )
+
+        missing = [
+            col for col in required
+            if col not in df.columns
+        ]
+
+        if missing:
+
+            raise ValueError(
+                f"Missing columns: {missing}"
+            )
+
+        if len(df) <= self.n_folds:
+
+            raise ValueError(
+                "Dataset must contain more rows than folds."
+            )
+
+        if not df[required].notna().all().all():
+
+            raise ValueError(
+                "Missing values found. Handle missing "
+                "values before fitting the DML engine."
+            )
+
+        if not np.isfinite(
+            df[[outcome_col, treatment_col]]
+            .to_numpy(dtype=float)
+        ).all():
+
+            raise ValueError(
+                "Outcome and treatment contain "
+                "infinite or invalid values."
+            )
+
+        if not pd.api.types.is_numeric_dtype(
+            df[outcome_col]
+        ):
+
+            raise ValueError(
+                "Outcome must be numeric."
+            )
+
+        if not pd.api.types.is_numeric_dtype(
+            df[treatment_col]
+        ):
+
+            raise ValueError(
+                "Treatment must be numeric."
+            )
+
+        if df[treatment_col].nunique() < 2:
+
+            raise ValueError(
+                "Treatment must contain variation."
+            )
+
+    # --------------------------------------------------------
+    # 3. FEATURE PREPROCESSING
+    # --------------------------------------------------------
+
+    def prepare_features(
+        self,
+        df,
+        feature_cols
+    ):
+
+        X = df[feature_cols].copy()
+
+        categorical_cols = X.select_dtypes(
+            include=["object", "category", "bool"]
+        ).columns.tolist()
+
+        numerical_cols = [
+            col for col in feature_cols
+            if col not in categorical_cols
+        ]
+
+        transformers = []
+
+        if numerical_cols:
+
+            numerical_pipeline = Pipeline([
+
+                (
+                    "imputer",
+                    SimpleImputer(strategy="median")
+                ),
+
+                (
+                    "scaler",
+                    StandardScaler()
+                )
+
+            ])
+
+            transformers.append(
+                (
+                    "numeric",
+                    numerical_pipeline,
+                    numerical_cols
+                )
+            )
+
+        if categorical_cols:
+
+            categorical_pipeline = Pipeline([
+
+                (
+                    "imputer",
+                    SimpleImputer(strategy="most_frequent")
+                ),
+
+                (
+                    "encoder",
+                    OneHotEncoder(
+                        handle_unknown="ignore",
+                        sparse_output=False
+                    )
+                )
+
+            ])
+
+            transformers.append(
+                (
+                    "categorical",
+                    categorical_pipeline,
+                    categorical_cols
+                )
+            )
+
+        self.preprocessor = ColumnTransformer(
+            transformers=transformers,
+            remainder="drop"
+        )
+
+        return X
+
+    # --------------------------------------------------------
+    # 4. FIT DML ENGINE
+    # --------------------------------------------------------
+
+    def fit(
+        self,
+        df,
+        feature_cols,
+        outcome_col="MOVE",
+        treatment_col="PRICE"
+    ):
+
+        self.validate_data(
+            df,
+            feature_cols,
+            outcome_col,
+            treatment_col
+        )
+
+        self.feature_names = feature_cols.copy()
+
+        X_raw = self.prepare_features(
+            df,
+            feature_cols
+        )
+
+        Y = df[outcome_col].to_numpy(dtype=float)
+
+        T = df[treatment_col].to_numpy(dtype=float)
 
         n_samples = len(Y)
-        X_scaled = self.scaler.fit_transform(X_raw)
 
-        # Multi-treatment indicator columns (for d=10, d=20)
-        W_10 = (T == 10).astype(float)
-        W_20 = (T == 20).astype(float)
-        W = np.column_stack([W_10, W_20])
+        # ----------------------------------------------------
+        # Cross-fitting
+        # ----------------------------------------------------
 
-        # Stage 1: Cross-fitting Nuisance Models
-        kf = KFold(n_splits=self.n_folds, shuffle=True, random_state=self.random_seed)
+        kf = KFold(
+            n_splits=self.n_folds,
+            shuffle=True,
+            random_state=self.random_seed
+        )
 
-        q_hat = np.zeros(n_samples)        # E[Y | X]
-        m_hat = np.zeros((n_samples, 2))   # E[W_10 | X], E[W_20 | X]
+        q_hat = np.zeros(n_samples)
 
-        for train_idx, val_idx in kf.split(X_scaled):
-            X_tr, X_val = X_scaled[train_idx], X_scaled[val_idx]
-            Y_tr, Y_val = Y[train_idx], Y[val_idx]
-            W_tr, W_val = W[train_idx], W[val_idx]
+        m_hat = np.zeros(n_samples)
 
-            # Outcome Nuisance Model: q(X) = E[Y | X]
-            outcome_model = GradientBoostingRegressor(
-                n_estimators=60,
-                max_depth=3,
-                learning_rate=0.08,
-                random_state=self.random_seed
+        X_transformed = np.zeros(
+            (n_samples, 0)
+        )
+
+        # Nuisance models
+
+        outcome_model = ExtraTreesRegressor(
+            n_estimators=150,
+            min_samples_leaf=3,
+            random_state=self.random_seed,
+            n_jobs=-1
+        )
+
+        treatment_model = ExtraTreesRegressor(
+            n_estimators=150,
+            min_samples_leaf=3,
+            random_state=self.random_seed + 1,
+            n_jobs=-1
+        )
+
+        # ----------------------------------------------------
+        # Stage 1: Cross-fitting
+        # ----------------------------------------------------
+
+        for fold, (train_idx, val_idx) in enumerate(
+            kf.split(X_raw)
+        ):
+
+            X_train_raw = X_raw.iloc[train_idx]
+
+            X_val_raw = X_raw.iloc[val_idx]
+
+            Y_train = Y[train_idx]
+
+            T_train = T[train_idx]
+
+            # Fit preprocessing only on training fold
+
+            fold_preprocessor = clone(
+                self.preprocessor
             )
-            outcome_model.fit(X_tr, Y_tr)
-            q_hat[val_idx] = outcome_model.predict(X_val)
 
-            # Treatment Nuisance Models: m_d(X) = E[W_d | X] (Propensities)
-            for d_idx in range(2):
-                prop_model = GradientBoostingRegressor(
-                    n_estimators=50,
-                    max_depth=3,
-                    learning_rate=0.08,
-                    random_state=self.random_seed + d_idx
+            X_train = fold_preprocessor.fit_transform(
+                X_train_raw
+            )
+
+            X_val = fold_preprocessor.transform(
+                X_val_raw
+            )
+
+            if fold == 0:
+
+                X_transformed = np.zeros(
+                    (
+                        n_samples,
+                        X_val.shape[1]
+                    )
                 )
-                prop_model.fit(X_tr, W_tr[:, d_idx])
-                # Clip estimated propensity away from 0 and 1 for strict positivity
-                m_hat[val_idx, d_idx] = np.clip(prop_model.predict(X_val), 0.01, 0.99)
 
-        # Compute Neyman-Orthogonal Residuals
-        tilde_Y = Y - q_hat
-        tilde_W = W - m_hat
+                self.encoded_feature_names = (
+                    fold_preprocessor.get_feature_names_out()
+                )
 
-        # Store nuisance diagnostics
-        outcome_r2 = 1.0 - np.sum(tilde_Y ** 2) / np.sum((Y - np.mean(Y)) ** 2)
-        corr_before = np.corrcoef(Y, W[:, 1])[0, 1]
-        corr_after = np.corrcoef(tilde_Y, tilde_W[:, 1])[0, 1]
+            X_transformed[val_idx] = X_val
+
+            # Outcome nuisance model
+
+            q_model = clone(outcome_model)
+
+            q_model.fit(
+                X_train,
+                Y_train
+            )
+
+            q_hat[val_idx] = q_model.predict(
+                X_val
+            )
+
+            # Treatment nuisance model
+
+            m_model = clone(treatment_model)
+
+            m_model.fit(
+                X_train,
+                T_train
+            )
+
+            m_hat[val_idx] = m_model.predict(
+                X_val
+            )
+
+        # ----------------------------------------------------
+        # Stage 2: Orthogonal Residuals
+        # ----------------------------------------------------
+
+        Y_residual = Y - q_hat
+
+        T_residual = T - m_hat
+
+        residual_variance = np.var(
+            T_residual,
+            ddof=1
+        )
+
+        if residual_variance < 1e-12:
+
+            raise ValueError(
+                "Insufficient residual treatment variation. "
+                "Check treatment overlap and feature selection."
+            )
+
+        # ----------------------------------------------------
+        # Stage 3: Average Treatment Effect
+        # ----------------------------------------------------
+
+        denominator = np.sum(
+            T_residual ** 2
+        )
+
+        ate = np.sum(
+            T_residual * Y_residual
+        ) / denominator
+
+        ate_residuals = (
+            Y_residual -
+            ate * T_residual
+        )
+
+        # HC3 robust standard error
+
+        leverage = (
+            T_residual ** 2 /
+            denominator
+        )
+
+        leverage = np.clip(
+            leverage,
+            0,
+            0.95
+        )
+
+        hc3_weights = (
+            ate_residuals /
+            (1 - leverage)
+        ) ** 2
+
+        variance = np.sum(
+            T_residual ** 2 *
+            hc3_weights
+        ) / denominator ** 2
+
+        standard_error = np.sqrt(
+            max(variance, 0)
+        )
+
+        z_score = (
+            ate / standard_error
+            if standard_error > 1e-12
+            else np.nan
+        )
+
+        p_value = (
+            2 * stats.norm.sf(abs(z_score))
+            if np.isfinite(z_score)
+            else np.nan
+        )
+
+        ci_lower = (
+            ate - 1.96 * standard_error
+        )
+
+        ci_upper = (
+            ate + 1.96 * standard_error
+        )
+
+        self.ate_results = {
+
+            "ate": float(ate),
+
+            "std_error": float(standard_error),
+
+            "z_score": float(z_score),
+
+            "p_value": float(p_value),
+
+            "ci_lower": float(ci_lower),
+
+            "ci_upper": float(ci_upper)
+
+        }
+
+        # ----------------------------------------------------
+        # Stage 4: Heterogeneous Treatment Effects
+        # ----------------------------------------------------
+
+        # Exploratory linear CATE model:
+        # tau(X) = beta_0 + beta_1*X_1 + ...
+
+        cate_design = np.column_stack([
+
+            T_residual,
+
+            T_residual[:, None] *
+            X_transformed
+
+        ])
+
+        self.cate_model = Ridge(
+            alpha=self.l2_reg,
+            fit_intercept=False
+        )
+
+        self.cate_model.fit(
+            cate_design,
+            Y_residual
+        )
+
+        # ----------------------------------------------------
+        # Stage 5: Diagnostics
+        # ----------------------------------------------------
 
         self.diagnostics = {
-            "n_samples": n_samples,
-            "outcome_r2": float(outcome_r2),
-            "unadjusted_corr_y_t20": float(corr_before),
-            "orthogonal_corr_y_t20": float(corr_after),
-            "mean_propensity_10": float(np.mean(m_hat[:, 0])),
-            "mean_propensity_20": float(np.mean(m_hat[:, 1])),
-            "mean_baseline_outcome": float(np.mean(q_hat))
+
+            "n_samples": int(n_samples),
+
+            "n_features": int(
+                X_transformed.shape[1]
+            ),
+
+            "n_folds": self.n_folds,
+
+            "mean_price": float(np.mean(T)),
+
+            "std_price": float(np.std(T)),
+
+            "mean_demand": float(np.mean(Y)),
+
+            "treatment_residual_std": float(
+                np.std(T_residual)
+            ),
+
+            "outcome_residual_std": float(
+                np.std(Y_residual)
+            ),
+
+            "outcome_nuisance_r2": float(
+                1 -
+                np.sum(Y_residual ** 2) /
+                np.sum(
+                    (Y - np.mean(Y)) ** 2
+                )
+            ),
+
+            "treatment_residual_correlation": float(
+                np.corrcoef(
+                    T_residual,
+                    Y_residual
+                )[0, 1]
+            )
+
         }
-
-        # Stage 2A: Average Treatment Effect (ATE) Estimation via Robinson Orthogonal OLS
-        # Model: tilde(Y) = alpha_10 * tilde(W_10) + alpha_20 * tilde(W_20) + eta
-        # Using heteroskedasticity-consistent HC3 standard errors
-        Z = tilde_W
-        inv_ZtZ = np.linalg.pinv(Z.T @ Z)
-        alpha = inv_ZtZ @ Z.T @ tilde_Y
-        residuals_ate = tilde_Y - Z @ alpha
-
-        # HC3 Sandwich Variance Estimator: (Z'Z)^-1 * (Z' diag(e_i / (1-h_i))^2 Z) * (Z'Z)^-1
-        hat_diag = np.sum(Z * (Z @ inv_ZtZ), axis=1)
-        hc3_weights = (residuals_ate / (1.0 - np.clip(hat_diag, 0.0, 0.95))) ** 2
-        omega = Z.T @ (hc3_weights[:, None] * Z)
-        var_cov_ate = inv_ZtZ @ omega @ inv_ZtZ
-        std_errors = np.sqrt(np.diag(var_cov_ate))
-
-        for idx, treat in enumerate(self.treatments):
-            coef = float(alpha[idx])
-            se = float(std_errors[idx])
-            z_score = coef / se if se > 1e-9 else 0.0
-            p_val = float(2.0 * (1.0 - stats.norm.cdf(abs(z_score))))
-            ci_lower = coef - 1.96 * se
-            ci_upper = coef + 1.96 * se
-
-            self.ate_results[treat] = {
-                "ate": coef,
-                "std_error": se,
-                "z_score": z_score,
-                "p_value": p_val,
-                "ci_lower": float(ci_lower),
-                "ci_upper": float(ci_upper)
-            }
-
-        # Stage 2B: Heterogeneous Treatment Effect (CATE / ITE) Estimation
-        # Parameterize: tau_d(X) = theta_{d,0} + theta_d^T X
-        # Linear R-Learner formulation:
-        # Features for each treatment: [tilde_W_d, tilde_W_d * X_scaled]
-        X_interactions_10 = tilde_W[:, 0:1] * np.column_stack([np.ones((n_samples, 1)), X_scaled])
-        X_interactions_20 = tilde_W[:, 1:2] * np.column_stack([np.ones((n_samples, 1)), X_scaled])
-        Design_Matrix = np.column_stack([X_interactions_10, X_interactions_20])
-
-        n_p = Design_Matrix.shape[1]
-        reg_eye = np.eye(n_p) * self.l2_reg
-        reg_eye[0, 0] = 0.0  # Don't regularize intercept for d=10
-        reg_eye[1 + len(feature_cols), 1 + len(feature_cols)] = 0.0  # Don't regularize intercept for d=20
-
-        theta = np.linalg.solve(Design_Matrix.T @ Design_Matrix + reg_eye, Design_Matrix.T @ tilde_Y)
-
-        dim_per_treat = 1 + len(feature_cols)
-        self.cate_coefficients[10] = theta[:dim_per_treat]
-        self.cate_coefficients[20] = theta[dim_per_treat:]
-
-        # Store nuisance models for full inference
-        self.final_outcome_model = GradientBoostingRegressor(n_estimators=80, max_depth=3, random_state=self.random_seed)
-        self.final_outcome_model.fit(X_scaled, Y)
-
-        self.final_prop_model_10 = GradientBoostingRegressor(n_estimators=50, max_depth=3, random_state=self.random_seed)
-        self.final_prop_model_10.fit(X_scaled, W_10)
-
-        self.final_prop_model_20 = GradientBoostingRegressor(n_estimators=50, max_depth=3, random_state=self.random_seed + 1)
-        self.final_prop_model_20.fit(X_scaled, W_20)
 
         self.is_fitted = True
+
         return self
 
-    def predict_cate(self, df_or_X: Any) -> Dict[str, np.ndarray]:
-        """
-        Predicts Conditional Average Treatment Effect (CATE) tau_10(X) and tau_20(X)
-        as well as baseline counterfactual conversion probability Y_0(X).
-        """
+    # --------------------------------------------------------
+    # 5. PREDICT CATE
+    # --------------------------------------------------------
+
+    def predict_cate(
+        self,
+        df
+    ):
+
         if not self.is_fitted:
-            raise ValueError("DML engine has not been fitted yet.")
 
-        if isinstance(df_or_X, pd.DataFrame):
-            X_raw = df_or_X[self.feature_names].values
-        else:
-            X_raw = np.array(df_or_X)
+            raise ValueError(
+                "DML engine has not been fitted."
+            )
 
-        if X_raw.ndim == 1:
-            X_raw = X_raw.reshape(1, -1)
+        X_raw = self.prepare_prediction_features(
+            df
+        )
 
-        X_scaled = self.scaler.transform(X_raw)
-        n_samples = X_scaled.shape[0]
+        X_scaled = self.preprocessor.transform(
+            X_raw
+        )
 
-        X_expanded = np.column_stack([np.ones((n_samples, 1)), X_scaled])
+        # Reconstruct fitted CATE design
 
-        tau_10 = X_expanded @ self.cate_coefficients[10]
-        tau_20 = X_expanded @ self.cate_coefficients[20]
+        # The fitted Ridge coefficients contain:
+        # 1. Intercept treatment effect
+        # 2. Feature-specific treatment effects
 
-        # Predicted baseline outcome Y(0)
-        # Using Robinson decomposition: E[Y | X] = Y0(X) + tau_10(X)*m_10(X) + tau_20(X)*m_20(X)
-        q_pred = self.final_outcome_model.predict(X_scaled)
-        m_10_pred = np.clip(self.final_prop_model_10.predict(X_scaled), 0.0, 1.0)
-        m_20_pred = np.clip(self.final_prop_model_20.predict(X_scaled), 0.0, 1.0)
+        coefficients = self.cate_model.coef_
 
-        y0_pred = q_pred - tau_10 * m_10_pred - tau_20 * m_20_pred
-        y0_pred = np.clip(y0_pred, 0.01, 0.98)
+        intercept_effect = coefficients[0]
 
-        y10_pred = np.clip(y0_pred + tau_10, 0.01, 0.99)
-        y20_pred = np.clip(y0_pred + tau_20, 0.01, 0.99)
+        feature_effects = coefficients[1:]
+
+        cate = (
+            intercept_effect +
+            X_scaled @ feature_effects
+        )
 
         return {
-            "tau_10": tau_10,
-            "tau_20": tau_20,
-            "y0_prob": y0_pred,
-            "y10_prob": y10_pred,
-            "y20_prob": y20_pred
+
+            "cate": cate,
+
+            "mean_cate": float(
+                np.mean(cate)
+            )
+
         }
 
-    def classify_uplift_quadrants(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Classifies each customer into one of the 4 Causal Uplift Quadrants:
-        1. Persuadables: tau_20 >= 0.12 (High positive causal response)
-        2. Sure Things: y0_prob >= 0.65 and tau_20 < 0.12 (Converts anyway)
-        3. Lost Causes: y0_prob < 0.25 and tau_20 < 0.12 (Doomed regardless)
-        4. Sleeping Dogs: tau_20 < 0.0 (Negative causal reaction to promo)
-        """
-        preds = self.predict_cate(df)
-        tau_20 = preds["tau_20"]
-        tau_10 = preds["tau_10"]
-        y0_prob = preds["y0_prob"]
+    # --------------------------------------------------------
+    # 6. PREDICTION FEATURE PREPARATION
+    # --------------------------------------------------------
 
-        quadrants = []
-        for i in range(len(df)):
-            t20 = tau_20[i]
-            y0 = y0_prob[i]
+    def prepare_prediction_features(
+        self,
+        df
+    ):
 
-            if t20 < -0.02:
-                quad = "Sleeping Dogs"
-            elif t20 >= 0.12:
-                quad = "Persuadables"
-            elif y0 >= 0.60:
-                quad = "Sure Things"
-            elif y0 < 0.25:
-                quad = "Lost Causes"
-            else:
-                quad = "Persuadables" if t20 > 0.06 else "Lost Causes"
+        missing = [
+            col for col in self.feature_names
+            if col not in df.columns
+        ]
 
-            quadrants.append(quad)
+        if missing:
 
-        res = df.copy()
-        res["pred_tau_10"] = np.round(tau_10, 4)
-        res["pred_tau_20"] = np.round(tau_20, 4)
-        res["pred_y0_prob"] = np.round(y0_prob, 4)
-        res["pred_y10_prob"] = np.round(preds["y10_prob"], 4)
-        res["pred_y20_prob"] = np.round(preds["y20_prob"], 4)
-        res["uplift_quadrant"] = quadrants
-        return res
+            raise ValueError(
+                f"Missing prediction features: {missing}"
+            )
 
-    def get_summary_metrics(self) -> Dict[str, Any]:
-        """Returns structured summary of causal model estimation."""
+        return df[self.feature_names].copy()
+
+    # --------------------------------------------------------
+    # 7. SUMMARY METRICS
+    # --------------------------------------------------------
+
+    def get_summary_metrics(self):
+
+        if not self.is_fitted:
+
+            raise ValueError(
+                "Fit the model before requesting metrics."
+            )
+
         return {
-            "ate_results": self.ate_results,
-            "diagnostics": self.diagnostics,
-            "feature_coefficients": {
-                "$10_discount": {
-                    feat: float(self.cate_coefficients[10][i + 1])
-                    for i, feat in enumerate(self.feature_names)
-                },
-                "$20_discount": {
-                    feat: float(self.cate_coefficients[20][i + 1])
-                    for i, feat in enumerate(self.feature_names)
-                }
-            }
+
+            "ATE Results": self.ate_results,
+
+            "Diagnostics": self.diagnostics,
+
+            "Treatment": "PRICE",
+
+            "Outcome": "MOVE",
+
+            "Method": "Partially Linear Double Machine Learning"
+
         }
