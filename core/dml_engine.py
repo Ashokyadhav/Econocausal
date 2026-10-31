@@ -3,47 +3,42 @@
 ECONOCAUSAL: DOUBLE MACHINE LEARNING ENGINE
 ============================================================
 
-Project:
-Dynamic Pricing via Double Machine Learning
+Project: Dynamic Pricing via Double Machine Learning
+
+Treatment : log(PRICE)
+Outcome   : log(MOVE)
 
 Methodology:
-Partially Linear Double Machine Learning
-Neyman Orthogonalization
-K-Fold Cross-Fitting
+1. Partially Linear Double Machine Learning
+2. K-Fold Cross-Fitting
+3. Neyman Orthogonalization
+4. Average Treatment Effect (ATE)
+5. Conditional Average Treatment Effect (CATE)
+6. Statistical Inference
+7. Model Diagnostics
 
-Treatment:
-PRICE (Continuous)
-
-Outcome:
-MOVE (Product Demand)
-
-Developed for:
-EconoCausal Dynamic Pricing Project
 ============================================================
 """
 
 import numpy as np
 import pandas as pd
 
-from typing import List, Dict, Any
+from scipy import stats
 
 from sklearn.base import clone
-from sklearn.model_selection import KFold
+from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import (
     ExtraTreesRegressor,
     RandomForestRegressor
 )
 from sklearn.impute import SimpleImputer
-from sklearn.preprocessing import (
-    StandardScaler,
-    OneHotEncoder
-)
-from sklearn.compose import ColumnTransformer
-from sklearn.pipeline import Pipeline
-
-from scipy import stats
-
 from sklearn.linear_model import Ridge
+from sklearn.model_selection import KFold
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import (
+    OneHotEncoder,
+    StandardScaler
+)
 
 
 class DoubleMachineLearningEngine:
@@ -52,155 +47,106 @@ class DoubleMachineLearningEngine:
     Continuous Treatment Double Machine Learning Engine.
 
     Treatment:
-        PRICE
+        log(PRICE)
 
     Outcome:
-        MOVE
+        log(MOVE)
 
-    Estimates:
-        1. Average Treatment Effect (ATE)
-        2. Conditional Average Treatment Effect (CATE)
-        3. Confidence Intervals
-        4. Statistical Significance
-        5. Model Diagnostics
+    Features:
+        Store, product and time-related variables.
 
-    Uses:
-        K-Fold Cross-Fitting
-        Neyman Orthogonal Scores
-        Partially Linear Regression
+    Estimation:
+        Partially Linear DML.
     """
 
-    # --------------------------------------------------------
+    # ========================================================
     # 1. INITIALIZATION
-    # --------------------------------------------------------
+    # ========================================================
 
     def __init__(
         self,
         n_folds=5,
         random_seed=42,
-        l2_reg=1.0
+        cate_alpha=1.0,
+        nuisance_model="extra_trees",
+        n_estimators=200,
+        min_samples_leaf=5
     ):
+
+        if n_folds < 2:
+            raise ValueError("n_folds must be at least 2.")
+
+        if nuisance_model not in [
+            "extra_trees",
+            "random_forest"
+        ]:
+            raise ValueError(
+                "Invalid nuisance model."
+            )
 
         self.n_folds = n_folds
         self.random_seed = random_seed
-        self.l2_reg = l2_reg
+        self.cate_alpha = cate_alpha
 
-        self.is_fitted = False
+        self.nuisance_model = nuisance_model
+        self.n_estimators = n_estimators
+        self.min_samples_leaf = min_samples_leaf
 
         self.feature_names = []
-        self.encoded_feature_names = []
+
+        self.preprocessor = None
+        self.cate_model = None
+
+        self.is_fitted = False
 
         self.ate_results = {}
         self.diagnostics = {}
 
-        self.cate_model = None
-        self.preprocessor = None
+    # ========================================================
+    # 2. ONE HOT ENCODER COMPATIBILITY
+    # ========================================================
 
-        self.feature_matrix_columns = None
+    @staticmethod
+    def _make_encoder():
 
-    # --------------------------------------------------------
-    # 2. DATA VALIDATION
-    # --------------------------------------------------------
-
-    def validate_data(
-        self,
-        df,
-        feature_cols,
-        outcome_col="MOVE",
-        treatment_col="PRICE"
-    ):
-
-        required = (
-            feature_cols +
-            [outcome_col, treatment_col]
-        )
-
-        missing = [
-            col for col in required
-            if col not in df.columns
-        ]
-
-        if missing:
-
-            raise ValueError(
-                f"Missing columns: {missing}"
+        try:
+            return OneHotEncoder(
+                handle_unknown="ignore",
+                sparse_output=False
             )
 
-        if len(df) <= self.n_folds:
-
-            raise ValueError(
-                "Dataset must contain more rows than folds."
+        except TypeError:
+            return OneHotEncoder(
+                handle_unknown="ignore",
+                sparse=False
             )
 
-        if not df[required].notna().all().all():
+    # ========================================================
+    # 3. CREATE PREPROCESSOR
+    # ========================================================
 
-            raise ValueError(
-                "Missing values found. Handle missing "
-                "values before fitting the DML engine."
-            )
+    def _make_preprocessor(self, X):
 
-        if not np.isfinite(
-            df[[outcome_col, treatment_col]]
-            .to_numpy(dtype=float)
-        ).all():
-
-            raise ValueError(
-                "Outcome and treatment contain "
-                "infinite or invalid values."
-            )
-
-        if not pd.api.types.is_numeric_dtype(
-            df[outcome_col]
-        ):
-
-            raise ValueError(
-                "Outcome must be numeric."
-            )
-
-        if not pd.api.types.is_numeric_dtype(
-            df[treatment_col]
-        ):
-
-            raise ValueError(
-                "Treatment must be numeric."
-            )
-
-        if df[treatment_col].nunique() < 2:
-
-            raise ValueError(
-                "Treatment must contain variation."
-            )
-
-    # --------------------------------------------------------
-    # 3. FEATURE PREPROCESSING
-    # --------------------------------------------------------
-
-    def prepare_features(
-        self,
-        df,
-        feature_cols
-    ):
-
-        X = df[feature_cols].copy()
-
-        categorical_cols = X.select_dtypes(
-            include=["object", "category", "bool"]
+        numeric_cols = X.select_dtypes(
+            include=["number"]
         ).columns.tolist()
 
-        numerical_cols = [
-            col for col in feature_cols
-            if col not in categorical_cols
+        categorical_cols = [
+            col for col in X.columns
+            if col not in numeric_cols
         ]
 
         transformers = []
 
-        if numerical_cols:
+        if numeric_cols:
 
-            numerical_pipeline = Pipeline([
+            numeric_pipeline = Pipeline([
 
                 (
                     "imputer",
-                    SimpleImputer(strategy="median")
+                    SimpleImputer(
+                        strategy="median"
+                    )
                 ),
 
                 (
@@ -213,8 +159,8 @@ class DoubleMachineLearningEngine:
             transformers.append(
                 (
                     "numeric",
-                    numerical_pipeline,
-                    numerical_cols
+                    numeric_pipeline,
+                    numeric_cols
                 )
             )
 
@@ -224,15 +170,14 @@ class DoubleMachineLearningEngine:
 
                 (
                     "imputer",
-                    SimpleImputer(strategy="most_frequent")
+                    SimpleImputer(
+                        strategy="most_frequent"
+                    )
                 ),
 
                 (
                     "encoder",
-                    OneHotEncoder(
-                        handle_unknown="ignore",
-                        sparse_output=False
-                    )
+                    self._make_encoder()
                 )
 
             ])
@@ -245,23 +190,120 @@ class DoubleMachineLearningEngine:
                 )
             )
 
-        self.preprocessor = ColumnTransformer(
+        if not transformers:
+
+            raise ValueError(
+                "No usable features found."
+            )
+
+        return ColumnTransformer(
             transformers=transformers,
             remainder="drop"
         )
 
-        return X
+    # ========================================================
+    # 4. CREATE NUISANCE MODEL
+    # ========================================================
 
-    # --------------------------------------------------------
-    # 4. FIT DML ENGINE
-    # --------------------------------------------------------
+    def _make_regressor(self, seed_offset=0):
+
+        params = {
+
+            "n_estimators": self.n_estimators,
+
+            "min_samples_leaf": self.min_samples_leaf,
+
+            "random_state": (
+                self.random_seed + seed_offset
+            ),
+
+            "n_jobs": -1
+
+        }
+
+        if self.nuisance_model == "random_forest":
+
+            return RandomForestRegressor(**params)
+
+        return ExtraTreesRegressor(**params)
+
+    # ========================================================
+    # 5. INPUT VALIDATION
+    # ========================================================
+
+    def validate_data(
+        self,
+        df,
+        feature_cols,
+        outcome_col,
+        treatment_col
+    ):
+
+        if not isinstance(df, pd.DataFrame):
+
+            raise TypeError(
+                "Input must be a pandas DataFrame."
+            )
+
+        if not feature_cols:
+
+            raise ValueError(
+                "Feature columns cannot be empty."
+            )
+
+        required = list(dict.fromkeys(
+            feature_cols + [
+                outcome_col,
+                treatment_col
+            ]
+        ))
+
+        missing = [
+            col for col in required
+            if col not in df.columns
+        ]
+
+        if missing:
+
+            raise ValueError(
+                f"Missing columns: {missing}"
+            )
+
+        if len(df) < self.n_folds * 2:
+
+            raise ValueError(
+                "Insufficient observations for cross-fitting."
+            )
+
+        for col in [outcome_col, treatment_col]:
+
+            values = pd.to_numeric(
+                df[col],
+                errors="coerce"
+            ).to_numpy(dtype=float)
+
+            if not np.isfinite(values).all():
+
+                raise ValueError(
+                    f"{col} contains missing or invalid values."
+                )
+
+            if np.unique(values).size < 2:
+
+                raise ValueError(
+                    f"{col} must contain variation."
+                )
+
+    # ========================================================
+    # 6. FIT DML MODEL
+    # ========================================================
 
     def fit(
         self,
         df,
         feature_cols,
-        outcome_col="MOVE",
-        treatment_col="PRICE"
+        outcome_col="log_move",
+        treatment_col="log_price"
     ):
 
         self.validate_data(
@@ -271,21 +313,24 @@ class DoubleMachineLearningEngine:
             treatment_col
         )
 
-        self.feature_names = feature_cols.copy()
+        self.feature_names = list(feature_cols)
 
-        X_raw = self.prepare_features(
-            df,
-            feature_cols
+        X = df[self.feature_names].copy().reset_index(
+            drop=True
         )
 
-        Y = df[outcome_col].to_numpy(dtype=float)
+        Y = pd.to_numeric(
+            df[outcome_col]
+        ).to_numpy(dtype=float)
 
-        T = df[treatment_col].to_numpy(dtype=float)
+        T = pd.to_numeric(
+            df[treatment_col]
+        ).to_numpy(dtype=float)
 
-        n_samples = len(Y)
+        n = len(Y)
 
         # ----------------------------------------------------
-        # Cross-fitting
+        # Initialize cross-fitting
         # ----------------------------------------------------
 
         kf = KFold(
@@ -294,139 +339,116 @@ class DoubleMachineLearningEngine:
             random_state=self.random_seed
         )
 
-        q_hat = np.zeros(n_samples)
+        q_hat = np.zeros(n)
 
-        m_hat = np.zeros(n_samples)
+        m_hat = np.zeros(n)
 
-        X_transformed = np.zeros(
-            (n_samples, 0)
-        )
+        X_oof = None
 
-        # Nuisance models
-
-        outcome_model = ExtraTreesRegressor(
-            n_estimators=150,
-            min_samples_leaf=3,
-            random_state=self.random_seed,
-            n_jobs=-1
-        )
-
-        treatment_model = ExtraTreesRegressor(
-            n_estimators=150,
-            min_samples_leaf=3,
-            random_state=self.random_seed + 1,
-            n_jobs=-1
+        template_preprocessor = (
+            self._make_preprocessor(X)
         )
 
         # ----------------------------------------------------
-        # Stage 1: Cross-fitting
+        # Stage 1: Nuisance estimation
         # ----------------------------------------------------
 
-        for fold, (train_idx, val_idx) in enumerate(
-            kf.split(X_raw)
+        for fold, (train_idx, valid_idx) in enumerate(
+            kf.split(X)
         ):
 
-            X_train_raw = X_raw.iloc[train_idx]
+            X_train_raw = X.iloc[train_idx]
 
-            X_val_raw = X_raw.iloc[val_idx]
+            X_valid_raw = X.iloc[valid_idx]
 
             Y_train = Y[train_idx]
 
             T_train = T[train_idx]
 
-            # Fit preprocessing only on training fold
+            # Fit preprocessing only on training data
 
             fold_preprocessor = clone(
-                self.preprocessor
+                template_preprocessor
             )
 
             X_train = fold_preprocessor.fit_transform(
                 X_train_raw
             )
 
-            X_val = fold_preprocessor.transform(
-                X_val_raw
+            X_valid = fold_preprocessor.transform(
+                X_valid_raw
             )
 
-            if fold == 0:
+            if X_oof is None:
 
-                X_transformed = np.zeros(
-                    (
-                        n_samples,
-                        X_val.shape[1]
-                    )
+                X_oof = np.zeros(
+                    (n, X_valid.shape[1])
                 )
 
-                self.encoded_feature_names = (
-                    fold_preprocessor.get_feature_names_out()
-                )
+            X_oof[valid_idx] = X_valid
 
-            X_transformed[val_idx] = X_val
+            # Outcome model
 
-            # Outcome nuisance model
+            model_y = self._make_regressor(
+                seed_offset=fold
+            )
 
-            q_model = clone(outcome_model)
-
-            q_model.fit(
+            model_y.fit(
                 X_train,
                 Y_train
             )
 
-            q_hat[val_idx] = q_model.predict(
-                X_val
+            q_hat[valid_idx] = model_y.predict(
+                X_valid
             )
 
-            # Treatment nuisance model
+            # Treatment model
 
-            m_model = clone(treatment_model)
+            model_t = self._make_regressor(
+                seed_offset=100 + fold
+            )
 
-            m_model.fit(
+            model_t.fit(
                 X_train,
                 T_train
             )
 
-            m_hat[val_idx] = m_model.predict(
-                X_val
+            m_hat[valid_idx] = model_t.predict(
+                X_valid
             )
 
         # ----------------------------------------------------
-        # Stage 2: Orthogonal Residuals
+        # Stage 2: Orthogonal residualization
         # ----------------------------------------------------
 
         Y_residual = Y - q_hat
 
         T_residual = T - m_hat
 
-        residual_variance = np.var(
-            T_residual,
-            ddof=1
+        denominator = np.sum(
+            T_residual ** 2
         )
 
-        if residual_variance < 1e-12:
+        if denominator <= 1e-12:
 
             raise ValueError(
-                "Insufficient residual treatment variation. "
-                "Check treatment overlap and feature selection."
+                "Insufficient residual treatment variation."
             )
 
         # ----------------------------------------------------
         # Stage 3: Average Treatment Effect
         # ----------------------------------------------------
 
-        denominator = np.sum(
-            T_residual ** 2
-        )
-
         ate = np.sum(
             T_residual * Y_residual
         ) / denominator
 
-        ate_residuals = (
+        residuals = (
             Y_residual -
             ate * T_residual
         )
 
-        # HC3 robust standard error
+        # HC3-style heteroskedasticity-robust SE
 
         leverage = (
             T_residual ** 2 /
@@ -439,14 +461,14 @@ class DoubleMachineLearningEngine:
             0.95
         )
 
-        hc3_weights = (
-            ate_residuals /
+        adjusted_residuals = (
+            residuals /
             (1 - leverage)
-        ) ** 2
+        )
 
         variance = np.sum(
             T_residual ** 2 *
-            hc3_weights
+            adjusted_residuals ** 2
         ) / denominator ** 2
 
         standard_error = np.sqrt(
@@ -465,12 +487,16 @@ class DoubleMachineLearningEngine:
             else np.nan
         )
 
+        critical_value = stats.norm.ppf(0.975)
+
         ci_lower = (
-            ate - 1.96 * standard_error
+            ate -
+            critical_value * standard_error
         )
 
         ci_upper = (
-            ate + 1.96 * standard_error
+            ate +
+            critical_value * standard_error
         )
 
         self.ate_results = {
@@ -490,23 +516,20 @@ class DoubleMachineLearningEngine:
         }
 
         # ----------------------------------------------------
-        # Stage 4: Heterogeneous Treatment Effects
+        # Stage 4: Exploratory CATE estimation
         # ----------------------------------------------------
-
-        # Exploratory linear CATE model:
-        # tau(X) = beta_0 + beta_1*X_1 + ...
 
         cate_design = np.column_stack([
 
             T_residual,
 
             T_residual[:, None] *
-            X_transformed
+            X_oof
 
         ])
 
         self.cate_model = Ridge(
-            alpha=self.l2_reg,
+            alpha=self.cate_alpha,
             fit_intercept=False
         )
 
@@ -516,46 +539,59 @@ class DoubleMachineLearningEngine:
         )
 
         # ----------------------------------------------------
-        # Stage 5: Diagnostics
+        # Stage 5: Fit final preprocessing model
         # ----------------------------------------------------
+
+        self.preprocessor = clone(
+            template_preprocessor
+        )
+
+        X_all = self.preprocessor.fit_transform(X)
+
+        # ----------------------------------------------------
+        # Stage 6: Model diagnostics
+        # ----------------------------------------------------
+
+        outcome_r2 = (
+            1 -
+            np.sum(Y_residual ** 2) /
+            np.sum(
+                (Y - np.mean(Y)) ** 2
+            )
+        )
+
+        treatment_r2 = (
+            1 -
+            np.sum(T_residual ** 2) /
+            np.sum(
+                (T - np.mean(T)) ** 2
+            )
+        )
 
         self.diagnostics = {
 
-            "n_samples": int(n_samples),
+            "sample_size": int(n),
 
-            "n_features": int(
-                X_transformed.shape[1]
+            "number_of_features": int(
+                X_all.shape[1]
             ),
 
-            "n_folds": self.n_folds,
+            "cross_folds": self.n_folds,
 
-            "mean_price": float(np.mean(T)),
+            "outcome_oof_r2": float(
+                outcome_r2
+            ),
 
-            "std_price": float(np.std(T)),
-
-            "mean_demand": float(np.mean(Y)),
+            "treatment_oof_r2": float(
+                treatment_r2
+            ),
 
             "treatment_residual_std": float(
-                np.std(T_residual)
+                np.std(T_residual, ddof=1)
             ),
 
             "outcome_residual_std": float(
-                np.std(Y_residual)
-            ),
-
-            "outcome_nuisance_r2": float(
-                1 -
-                np.sum(Y_residual ** 2) /
-                np.sum(
-                    (Y - np.mean(Y)) ** 2
-                )
-            ),
-
-            "treatment_residual_correlation": float(
-                np.corrcoef(
-                    T_residual,
-                    Y_residual
-                )[0, 1]
+                np.std(Y_residual, ddof=1)
             )
 
         }
@@ -564,64 +600,17 @@ class DoubleMachineLearningEngine:
 
         return self
 
-    # --------------------------------------------------------
-    # 5. PREDICT CATE
-    # --------------------------------------------------------
+    # ========================================================
+    # 7. PREDICT CATE
+    # ========================================================
 
-    def predict_cate(
-        self,
-        df
-    ):
+    def predict_cate(self, df):
 
         if not self.is_fitted:
 
             raise ValueError(
-                "DML engine has not been fitted."
+                "Fit the DML model first."
             )
-
-        X_raw = self.prepare_prediction_features(
-            df
-        )
-
-        X_scaled = self.preprocessor.transform(
-            X_raw
-        )
-
-        # Reconstruct fitted CATE design
-
-        # The fitted Ridge coefficients contain:
-        # 1. Intercept treatment effect
-        # 2. Feature-specific treatment effects
-
-        coefficients = self.cate_model.coef_
-
-        intercept_effect = coefficients[0]
-
-        feature_effects = coefficients[1:]
-
-        cate = (
-            intercept_effect +
-            X_scaled @ feature_effects
-        )
-
-        return {
-
-            "cate": cate,
-
-            "mean_cate": float(
-                np.mean(cate)
-            )
-
-        }
-
-    # --------------------------------------------------------
-    # 6. PREDICTION FEATURE PREPARATION
-    # --------------------------------------------------------
-
-    def prepare_prediction_features(
-        self,
-        df
-    ):
 
         missing = [
             col for col in self.feature_names
@@ -634,30 +623,55 @@ class DoubleMachineLearningEngine:
                 f"Missing prediction features: {missing}"
             )
 
-        return df[self.feature_names].copy()
+        X = df[self.feature_names].copy()
 
-    # --------------------------------------------------------
-    # 7. SUMMARY METRICS
-    # --------------------------------------------------------
+        X_transformed = (
+            self.preprocessor.transform(X)
+        )
+
+        coefficients = self.cate_model.coef_
+
+        intercept_effect = coefficients[0]
+
+        feature_effects = coefficients[1:]
+
+        cate = (
+            intercept_effect +
+            X_transformed @ feature_effects
+        )
+
+        return cate
+
+    # ========================================================
+    # 8. GET SUMMARY
+    # ========================================================
 
     def get_summary_metrics(self):
 
         if not self.is_fitted:
 
             raise ValueError(
-                "Fit the model before requesting metrics."
+                "Model has not been fitted."
             )
 
         return {
 
-            "ATE Results": self.ate_results,
+            "method":
+                "Partially Linear Double Machine Learning",
 
-            "Diagnostics": self.diagnostics,
+            "treatment":
+                "Continuous Price",
 
-            "Treatment": "PRICE",
+            "outcome":
+                "Product Demand",
 
-            "Outcome": "MOVE",
+            "ATE":
+                self.ate_results,
 
-            "Method": "Partially Linear Double Machine Learning"
+            "Diagnostics":
+                self.diagnostics,
+
+            "CATE_note":
+                "Exploratory linear heterogeneous treatment estimates."
 
         }
