@@ -115,3 +115,21 @@ Focused on reviewing dataset quality and strengthening validation rules for the 
 
 > **Status:** Schema review completed. Prepared for feature engineering.
 
+> **Status:** Week 3 Final Progress Completed
+
+## 📊 Causal DAG
+
+The DAG illustrates the assumed relationship between product pricing and sales movement in the DML project.
+
+### 🖼️ DAG Diagram
+![Causal DAG](assets/dag_diagram.png)
+
+### 🏷️ Variables
+- **`PRICE`** – Treatment variable.
+- **`MOVE`** – Outcome variable.
+- **`STORE`**, **`UPC`**, **`WEEK`** – Control variables.
+
+### 🧠 Causal Analysis
+The DAG helps identify potential confounders and select relevant control variables to estimate the causal effect of `PRICE` on `MOVE`.
+
+> **Note:** Unobserved factors such as promotions and demand fluctuations may also affect sales.
