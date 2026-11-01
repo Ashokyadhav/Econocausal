@@ -1,5 +1,6 @@
 ```python
 """
+﻿"""
 EconoCausal Core Package
 
 Double Machine Learning (DML) for:
@@ -20,6 +21,7 @@ from .benchmark import ModelComparator
 
 from .optimizer import DynamicPricingOptimizer
 
+from optimizer import DynamicPricingOptimizer
 from .refutation import CausalRefutationSuite
 
 
