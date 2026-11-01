@@ -58,6 +58,9 @@ The available variables may not fully capture external factors influencing sales
 
 These factors should be considered before drawing causal conclusions from the estimated price effect.
 
+- **Data Constraints:** Lack of granular store-level promotional tracking may introduce omitted variable bias in causal estimates.
+-
+
 ## Current Status
 
 Initial data preparation and validation have been completed. Causal validation and model specification remain in progress.
@@ -133,3 +136,5 @@ The DAG illustrates the assumed relationship between product pricing and sales m
 The DAG helps identify potential confounders and select relevant control variables to estimate the causal effect of `PRICE` on `MOVE`.
 
 > **Note:** Unobserved factors such as promotions and demand fluctuations may also affect sales.
+
+
