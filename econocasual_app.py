@@ -1,59 +1,33 @@
+
 import streamlit as st
 import pandas as pd
 
-# -----------------------------------
-# PAGE CONFIGURATION
-# -----------------------------------
 st.set_page_config(
-    page_title="EconoCausal | Dynamic Pricing",
+    page_title="EconoCausal Dashboard",
     page_icon="📊",
     layout="wide"
 )
 
-# -----------------------------------
-# MODEL RESULTS
-# Existing cluster-aware results
-# -----------------------------------
+# Cluster-aware model results
 baseline = {
-    "name": "Baseline",
     "observations": 20000,
     "coefficient": -97.0281,
-    "std_error": 10.2362,
+    "se": 10.2362,
     "lower": -117.0907,
     "upper": -76.9655
 }
 
 filtered = {
-    "name": "Filtered",
     "observations": 19572,
     "coefficient": -27.3148,
-    "std_error": 0.9820,
+    "se": 0.9820,
     "lower": -29.2395,
     "upper": -25.3901
 }
 
-# -----------------------------------
-# HEADER
-# -----------------------------------
-st.title("📊 EconoCausal")
-st.subheader("Dynamic Pricing via Double Machine Learning")
-
-st.markdown(
-    "An analytical dashboard exploring the relationship "
-    "between price changes and sales movement changes."
-)
-
-st.info(
-    "This dashboard displays existing cluster-aware DML results. "
-    "It does not train or rerun any machine learning models."
-)
-
-st.divider()
-
-# -----------------------------------
-# SIDEBAR
-# -----------------------------------
+# Sidebar navigation
 st.sidebar.title("Project Navigation")
+
 section = st.sidebar.radio(
     "Select Section",
     [
@@ -67,34 +41,38 @@ section = st.sidebar.radio(
 st.sidebar.divider()
 st.sidebar.caption("EconoCausal Project")
 st.sidebar.caption("Double Machine Learning")
-st.sidebar.caption("Inference: Cluster-aware by PAIR_ID")
+st.sidebar.caption("Cluster-aware inference: PAIR_ID")
 
-# -----------------------------------
-# OVERVIEW
-# -----------------------------------
+# Main heading
+st.title("📊 EconoCausal")
+st.subheader("Dynamic Pricing via Double Machine Learning")
+
+st.info(
+    "This dashboard presents existing cluster-aware DML results. "
+    "It does not train or rerun machine learning models."
+)
+
+# Overview
 if section == "Overview":
 
     st.header("Project Overview")
 
     col1, col2, col3 = st.columns(3)
 
-    with col1:
-        st.metric(
-            "Baseline Effect",
-            f"{baseline['coefficient']:.2f}"
-        )
+    col1.metric(
+        "Baseline Effect",
+        f"{baseline['coefficient']:.2f}"
+    )
 
-    with col2:
-        st.metric(
-            "Filtered Effect",
-            f"{filtered['coefficient']:.2f}"
-        )
+    col2.metric(
+        "Filtered Effect",
+        f"{filtered['coefficient']:.2f}"
+    )
 
-    with col3:
-        st.metric(
-            "Filtered Standard Error",
-            f"{filtered['std_error']:.3f}"
-        )
+    col3.metric(
+        "Filtered Standard Error",
+        f"{filtered['se']:.3f}"
+    )
 
     st.divider()
 
@@ -129,7 +107,7 @@ if section == "Overview":
 
     st.subheader("Observations Used")
 
-    sample_data = pd.DataFrame({
+    observations = pd.DataFrame({
         "Model": ["Baseline", "Filtered"],
         "Observations": [
             baseline["observations"],
@@ -138,12 +116,12 @@ if section == "Overview":
     })
 
     st.bar_chart(
-        sample_data.set_index("Model")
+        observations,
+        x="Model",
+        y="Observations"
     )
 
-# -----------------------------------
-# MODEL COMPARISON
-# -----------------------------------
+# Model comparison
 elif section == "Model Comparison":
 
     st.header("Model Comparison")
@@ -159,14 +137,14 @@ elif section == "Model Comparison":
         "Baseline": [
             baseline["observations"],
             baseline["coefficient"],
-            baseline["std_error"],
+            baseline["se"],
             baseline["lower"],
             baseline["upper"]
         ],
         "Filtered": [
             filtered["observations"],
             filtered["coefficient"],
-            filtered["std_error"],
+            filtered["se"],
             filtered["lower"],
             filtered["upper"]
         ]
@@ -182,7 +160,7 @@ elif section == "Model Comparison":
 
     st.subheader("Estimated Price Effect")
 
-    effect_data = pd.DataFrame({
+    effects = pd.DataFrame({
         "Model": ["Baseline", "Filtered"],
         "Estimated Effect": [
             baseline["coefficient"],
@@ -191,26 +169,30 @@ elif section == "Model Comparison":
     })
 
     st.bar_chart(
-        effect_data.set_index("Model")
+        effects,
+        x="Model",
+        y="Estimated Effect"
     )
 
     st.subheader("Standard Error Comparison")
 
-    error_data = pd.DataFrame({
+    errors = pd.DataFrame({
         "Model": ["Baseline", "Filtered"],
         "Standard Error": [
-            baseline["std_error"],
-            filtered["std_error"]
+            baseline["se"],
+            filtered["se"]
         ]
     })
 
     st.bar_chart(
-        error_data.set_index("Model")
+        errors,
+        x="Model",
+        y="Standard Error"
     )
 
     st.subheader("Confidence Interval Comparison")
 
-    ci_data = pd.DataFrame({
+    intervals = pd.DataFrame({
         "Model": ["Baseline", "Filtered"],
         "Lower Limit": [
             baseline["lower"],
@@ -223,14 +205,12 @@ elif section == "Model Comparison":
     })
 
     st.dataframe(
-        ci_data,
+        intervals,
         use_container_width=True,
         hide_index=True
     )
 
-# -----------------------------------
-# RESEARCH INTERPRETATION
-# -----------------------------------
+# Research interpretation
 elif section == "Research Interpretation":
 
     st.header("Research Interpretation")
@@ -243,86 +223,65 @@ elif section == "Research Interpretation":
     )
 
     st.write(
-        f"The baseline model estimates a coefficient of "
-        f"{baseline['coefficient']:.4f}."
+        "The baseline coefficient is -97.03, while the filtered "
+        "coefficient is -27.31."
     )
 
     st.write(
-        f"The filtered model estimates a coefficient of "
-        f"{filtered['coefficient']:.4f}."
-    )
-
-    st.subheader("What Does This Mean?")
-
-    st.write(
-        "The negative estimates indicate that higher price changes "
-        "are associated with lower sales movement changes, "
-        "under the respective model specifications."
+        "The filtered estimate is smaller in magnitude. "
+        "This indicates that the estimated relationship is "
+        "sensitive to the filtering procedure."
     )
 
     st.warning(
-        "The estimates differ substantially. The models use "
-        "different samples, so the difference should not be "
-        "attributed to filtering alone without further investigation. "
-        "Additional robustness checks are needed before making "
+        "The two estimates use different samples. "
+        "Further robustness checks are needed before making "
         "strong causal claims."
     )
 
-    st.subheader("Confidence Intervals")
+    st.subheader("Key Takeaway")
 
-    st.write(
-        f"Baseline: [{baseline['lower']:.4f}, "
-        f"{baseline['upper']:.4f}]"
+    st.success(
+        "The analysis identifies a negative estimated relationship "
+        "between price changes and sales movement changes."
     )
 
-    st.write(
-        f"Filtered: [{filtered['lower']:.4f}, "
-        f"{filtered['upper']:.4f}]"
-    )
-
-# -----------------------------------
-# METHODOLOGY
-# -----------------------------------
+# Methodology
 elif section == "Methodology":
 
     st.header("Project Methodology")
 
-    st.subheader("1. Dataset")
+    steps = [
+        "Data collection and cleaning using WCER2.",
+        "Creation of consecutive-week changes.",
+        "Definition of treatment, outcome and control variables.",
+        "Preparation of baseline and filtered samples.",
+        "Double Machine Learning using DoubleMLPLR.",
+        "Cluster-aware inference using PAIR_ID.",
+        "Comparison and interpretation of model estimates."
+    ]
 
-    st.write(
-        "The project uses the cleaned WCER2 dataset containing "
-        "store, product, week, price and sales movement information."
-    )
+    for i, step in enumerate(steps, 1):
+        st.write(f"**Step {i}.** {step}")
 
-    st.subheader("2. Treatment and Outcome")
+    st.divider()
 
-    st.write(
-        "**Treatment (d_PRICE):** Change in price."
-    )
+    st.subheader("Model Configuration")
 
-    st.write(
-        "**Outcome (d_MOVE):** Change in sales movement."
-    )
-
-    st.subheader("3. Control Variables")
-
-    st.write("STORE, UPC and WEEK.")
-
-    st.subheader("4. Estimation Method")
-
-    st.write(
-        "Double Machine Learning using the Partialling Out "
-        "method (DoubleMLPLR)."
-    )
-
-    st.subheader("5. Cluster-aware Inference")
-
-    st.write(
-        "PAIR_ID is used as the clustering variable to account "
-        "for repeated observations within store-product pairs."
-    )
+    st.write("Treatment: d_PRICE")
+    st.write("Outcome: d_MOVE")
+    st.write("Controls: STORE, UPC, WEEK")
+    st.write("Method: DoubleMLPLR")
+    st.write("Inference: Cluster-aware by PAIR_ID")
 
     st.info(
-        "The dashboard presents saved model results. "
+        "The dashboard displays saved model results. "
         "It does not perform model training."
     )
+
+st.divider()
+
+st.caption(
+    "EconoCausal | Dynamic Pricing via Double Machine Learning"
+)
+
