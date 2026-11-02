@@ -326,18 +326,3 @@ elif section == "Methodology":
         "The dashboard presents saved model results. "
         "It does not perform model training."
     )
-
-# -----------------------------------
-# FOOTER
-# -----------------------------------
-st.divider()
-
-st.caption(
-    "EconoCausal | Dynamic Pricing via Double Machine Learning"
-)
-
-st.caption(
-    "Research dashboard | Cluster-aware model results"
-)
-ausal | Dynamic Pricing via Double Machine Learning"
-)
