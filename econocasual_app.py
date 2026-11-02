@@ -1,14 +1,14 @@
-
 import streamlit as st
 import pandas as pd
 
+# ---------------- PAGE CONFIGURATION ----------------
 st.set_page_config(
     page_title="EconoCausal Dashboard",
     page_icon="📊",
     layout="wide"
 )
 
-# Cluster-aware model results
+# ---------------- MODEL RESULTS ----------------
 baseline = {
     "observations": 20000,
     "coefficient": -97.0281,
@@ -20,12 +20,12 @@ baseline = {
 filtered = {
     "observations": 19572,
     "coefficient": -27.3148,
-    "se": 0.9820,
+    "se": 0.982,
     "lower": -29.2395,
     "upper": -25.3901
 }
 
-# Sidebar navigation
+# ---------------- SIDEBAR ----------------
 st.sidebar.title("Project Navigation")
 
 section = st.sidebar.radio(
@@ -43,16 +43,24 @@ st.sidebar.caption("EconoCausal Project")
 st.sidebar.caption("Double Machine Learning")
 st.sidebar.caption("Cluster-aware inference: PAIR_ID")
 
-# Main heading
+# ---------------- HEADER ----------------
 st.title("📊 EconoCausal")
-st.subheader("Dynamic Pricing via Double Machine Learning")
+
+st.subheader(
+    "Dynamic Pricing via Double Machine Learning"
+)
+
+st.write(
+    "An analytical dashboard exploring the relationship "
+    "between price changes and sales movement changes."
+)
 
 st.info(
-    "This dashboard presents existing cluster-aware DML results. "
+    "This dashboard displays saved cluster-aware DML results. "
     "It does not train or rerun machine learning models."
 )
 
-# Overview
+# ---------------- OVERVIEW ----------------
 if section == "Overview":
 
     st.header("Project Overview")
@@ -61,17 +69,17 @@ if section == "Overview":
 
     col1.metric(
         "Baseline Effect",
-        f"{baseline['coefficient']:.2f}"
+        f'{baseline["coefficient"]:.2f}'
     )
 
     col2.metric(
         "Filtered Effect",
-        f"{filtered['coefficient']:.2f}"
+        f'{filtered["coefficient"]:.2f}'
     )
 
     col3.metric(
         "Filtered Standard Error",
-        f"{filtered['se']:.3f}"
+        f'{filtered["se"]:.3f}'
     )
 
     st.divider()
@@ -116,12 +124,10 @@ if section == "Overview":
     })
 
     st.bar_chart(
-        observations,
-        x="Model",
-        y="Observations"
+        observations.set_index("Model")
     )
 
-# Model comparison
+# ---------------- MODEL COMPARISON ----------------
 elif section == "Model Comparison":
 
     st.header("Model Comparison")
@@ -156,8 +162,6 @@ elif section == "Model Comparison":
         hide_index=True
     )
 
-    st.divider()
-
     st.subheader("Estimated Price Effect")
 
     effects = pd.DataFrame({
@@ -169,9 +173,7 @@ elif section == "Model Comparison":
     })
 
     st.bar_chart(
-        effects,
-        x="Model",
-        y="Estimated Effect"
+        effects.set_index("Model")
     )
 
     st.subheader("Standard Error Comparison")
@@ -185,9 +187,7 @@ elif section == "Model Comparison":
     })
 
     st.bar_chart(
-        errors,
-        x="Model",
-        y="Standard Error"
+        errors.set_index("Model")
     )
 
     st.subheader("Confidence Interval Comparison")
@@ -210,7 +210,7 @@ elif section == "Model Comparison":
         hide_index=True
     )
 
-# Research interpretation
+# ---------------- RESEARCH INTERPRETATION ----------------
 elif section == "Research Interpretation":
 
     st.header("Research Interpretation")
@@ -223,8 +223,9 @@ elif section == "Research Interpretation":
     )
 
     st.write(
-        "The baseline coefficient is -97.03, while the filtered "
-        "coefficient is -27.31."
+        f'The baseline coefficient is '
+        f'{baseline["coefficient"]:.2f}, while the filtered '
+        f'coefficient is {filtered["coefficient"]:.2f}.'
     )
 
     st.write(
@@ -234,9 +235,9 @@ elif section == "Research Interpretation":
     )
 
     st.warning(
-        "The two estimates use different samples. "
-        "Further robustness checks are needed before making "
-        "strong causal claims."
+        "The two estimates use different samples. Further "
+        "robustness checks are needed before making strong "
+        "causal claims."
     )
 
     st.subheader("Key Takeaway")
@@ -246,7 +247,7 @@ elif section == "Research Interpretation":
         "between price changes and sales movement changes."
     )
 
-# Methodology
+# ---------------- METHODOLOGY ----------------
 elif section == "Methodology":
 
     st.header("Project Methodology")
@@ -261,27 +262,63 @@ elif section == "Methodology":
         "Comparison and interpretation of model estimates."
     ]
 
-    for i, step in enumerate(steps, 1):
-        st.write(f"**Step {i}.** {step}")
+    for i, step in enumerate(steps, start=1):
+        st.markdown(f"**Step {i}.** {step}")
 
     st.divider()
 
+    st.subheader("Filtering Details")
+
+    st.write(
+        "The filtered sensitivity analysis uses a restricted "
+        "range of outcome changes (d_MOVE), as defined in the "
+        "project's analysis notebook."
+    )
+
+    st.info(
+        "Baseline observations: 20,000\n\n"
+        "Filtered observations: 19,572"
+    )
+
     st.subheader("Model Configuration")
 
-    st.write("Treatment: d_PRICE")
-    st.write("Outcome: d_MOVE")
-    st.write("Controls: STORE, UPC, WEEK")
-    st.write("Method: DoubleMLPLR")
-    st.write("Inference: Cluster-aware by PAIR_ID")
+    config = pd.DataFrame({
+        "Setting": [
+            "Treatment",
+            "Outcome",
+            "Controls",
+            "Estimator",
+            "Cluster variable",
+            "Inference"
+        ],
+        "Configuration": [
+            "d_PRICE",
+            "d_MOVE",
+            "STORE, UPC, WEEK",
+            "DoubleMLPLR",
+            "PAIR_ID",
+            "Cluster-aware"
+        ]
+    })
+
+    st.dataframe(
+        config,
+        use_container_width=True,
+        hide_index=True
+    )
 
     st.info(
         "The dashboard displays saved model results. "
         "It does not perform model training."
     )
 
+# ---------------- FOOTER ----------------
 st.divider()
 
 st.caption(
     "EconoCausal | Dynamic Pricing via Double Machine Learning"
 )
 
+st.caption(
+    "Research dashboard | Preliminary model results"
+)
