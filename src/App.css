@@ -977,3 +977,46 @@ td {
     font-size: 9px;
   }
 }
+/* Mid-review UI polish */
+.metric-card,
+.panel,
+.analysis-card {
+  transition: border-color 0.2s ease, box-shadow 0.2s ease,
+    transform 0.2s ease;
+}
+
+.metric-card:hover,
+.panel:hover,
+.analysis-card:hover {
+  border-color: #51416f;
+  box-shadow: 0 10px 28px #00000024;
+}
+
+.metric-card:hover {
+  transform: translateY(-2px);
+}
+
+tbody tr {
+  transition: background 0.18s ease;
+}
+
+tbody tr:hover {
+  background: #1a1b25;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 2px solid #a579ff;
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
