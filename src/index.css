@@ -1,4 +1,4 @@
-:root {
+﻿:root {
   font-family: Inter, "Segoe UI", Arial, sans-serif;
   color: #f4f4f8;
   background: #0b0c10;
@@ -6,7 +6,6 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-
   font-optical-sizing: auto;
   font-weight: 400;
 }

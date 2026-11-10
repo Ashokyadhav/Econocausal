@@ -1,4 +1,4 @@
-import os
+﻿import os
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import Base, check_database_connection, engine
 from app.routes.products import router as products_router
+from app.routes.analytics import router as analytics_router
 
 load_dotenv("backend/.env")
 
@@ -51,6 +52,7 @@ app.add_middleware(
 )
 
 app.include_router(products_router)
+app.include_router(analytics_router)
 
 
 @app.get("/", tags=["General"])
