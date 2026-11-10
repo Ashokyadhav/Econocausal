@@ -229,3 +229,126 @@ async def upload_dataset(file: UploadFile = File(...)):
         "feature_columns": FEATURE_COLUMNS,
         "preview": df.head(5).to_dict(orient="records"),
     }
+
+from core.dml_engine import DoubleMachineLearningEngine
+
+
+@router.post("/{dataset_id}/train")
+async def train_dml_model(dataset_id: str):
+    # Step 1: Retrieve uploaded dataset
+    if dataset_id not in DATASET_STORE:
+        raise HTTPException(
+            status_code=404,
+            detail="Dataset not found. Please upload the dataset again.",
+        )
+
+    df = DATASET_STORE[dataset_id].copy()
+
+    try:
+        # Step 2: Initialize and train DML model
+        model = DoubleMachineLearningEngine(
+            n_folds=5,
+            random_seed=42,
+        )
+
+        model.fit(
+            df,
+            feature_cols=FEATURE_COLUMNS,
+            outcome_col="converted",
+            treatment_col="discount_offered",
+        )
+
+        # Step 3: Generate customer-level predictions
+        predictions_df = model.classify_uplift_quadrants(df)
+
+        # Step 4: Generate model summary
+        summary = model.get_summary_metrics()
+
+        # Step 5: Store trained model and predictions
+        TRAINED_STORE[dataset_id] = {
+            "model": model,
+            "predictions": predictions_df,
+            "summary": summary,
+        }
+
+        # Step 6: Return training results
+        return {
+            "message": "DML model trained successfully.",
+            "dataset_id": dataset_id,
+            "training_status": "completed",
+            "total_records": int(len(df)),
+            "ate_results": summary["ate_results"],
+            "diagnostics": summary["diagnostics"],
+            "feature_coefficients": summary["feature_coefficients"],
+            "prediction_summary": {
+                "total_customers": int(len(predictions_df)),
+                "average_tau_10": round(
+                    float(predictions_df["pred_tau_10"].mean()), 4
+                ),
+                "average_tau_20": round(
+                    float(predictions_df["pred_tau_20"].mean()), 4
+                ),
+                "uplift_quadrants": {
+                    str(key): int(value)
+                    for key, value in predictions_df[
+                        "uplift_quadrant"
+                    ].value_counts().items()
+                },
+            },
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as exc:
+        TRAINED_STORE.pop(dataset_id, None)
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"DML model training failed: {str(exc)}",
+        ) from exc
+
+@router.get("/{dataset_id}/results")
+async def get_dml_results(dataset_id: str):
+    # Check whether the dataset exists
+    if dataset_id not in DATASET_STORE:
+        raise HTTPException(
+            status_code=404,
+            detail="Dataset not found. Please upload the dataset again.",
+        )
+
+    # Check whether DML training is completed
+    if dataset_id not in TRAINED_STORE:
+        raise HTTPException(
+            status_code=409,
+            detail="DML model has not been trained for this dataset.",
+        )
+
+    trained_data = TRAINED_STORE[dataset_id]
+    predictions_df = trained_data["predictions"]
+    summary = trained_data["summary"]
+
+    return {
+        "message": "DML results retrieved successfully.",
+        "dataset_id": dataset_id,
+        "training_status": "completed",
+        "total_records": int(len(predictions_df)),
+        "ate_results": summary["ate_results"],
+        "diagnostics": summary["diagnostics"],
+        "feature_coefficients": summary["feature_coefficients"],
+        "prediction_summary": {
+            "total_customers": int(len(predictions_df)),
+            "average_tau_10": round(
+                float(predictions_df["pred_tau_10"].mean()), 4
+            ),
+            "average_tau_20": round(
+                float(predictions_df["pred_tau_20"].mean()), 4
+            ),
+            "uplift_quadrants": {
+                str(key): int(value)
+                for key, value in predictions_df[
+                    "uplift_quadrant"
+                ].value_counts().items()
+            },
+        },
+    }
