@@ -352,3 +352,33 @@ async def get_dml_results(dataset_id: str):
             },
         },
     }
+
+@router.get("/{dataset_id}/export")
+async def export_dml_results(dataset_id: str):
+    if dataset_id not in DATASET_STORE:
+        raise HTTPException(
+            status_code=404,
+            detail="Dataset not found. Please upload the dataset again.",
+        )
+
+    if dataset_id not in TRAINED_STORE:
+        raise HTTPException(
+            status_code=409,
+            detail="DML model has not been trained for this dataset.",
+        )
+
+    predictions_df = TRAINED_STORE[dataset_id]["predictions"]
+
+    csv_buffer = BytesIO()
+    predictions_df.to_csv(csv_buffer, index=False)
+    csv_buffer.seek(0)
+
+    filename = f"dml_predictions_{dataset_id}.csv"
+
+    return StreamingResponse(
+        csv_buffer,
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"'
+        },
+    )
