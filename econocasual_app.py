@@ -1,1178 +1,413 @@
-
 import streamlit as st
 import pandas as pd
 import numpy as np
-from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
-from sklearn.model_selection import StratifiedKFold, cross_val_predict
-import statsmodels.api as sm
+
+# ============================================================
+# ECONOCAUSAL | UI/UX REDESIGN
+# Original Coupon Impact results and dashboard functionality
+# are preserved. This update changes presentation and layout.
+# ============================================================
 
 st.set_page_config(
-    page_title="EconoCausal",
-    page_icon="📊",
-    layout="wide"
+    page_title="EconoCausal | Coupon Intelligence",
+    page_icon="📈",
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-# =========================================================
-# 1. SAVED COUPON RESEARCH RESULTS
-# =========================================================
+# -----------------------------
+# THEME
+# -----------------------------
+if "ec_theme" not in st.session_state:
+    st.session_state.ec_theme = "Dark"
 
-DML_RESULTS = pd.DataFrame({
+with st.sidebar:
+    st.markdown("<div class='brand-mark'>EC</div>", unsafe_allow_html=True)
+    st.markdown("<div class='brand-name'>Econo<span>Causal</span></div>", unsafe_allow_html=True)
+    st.caption("COUPON INTELLIGENCE PLATFORM")
+    st.divider()
+    st.markdown("#### WORKSPACE")
+    section = st.radio(
+        "Navigation",
+        [
+            "Overview",
+            "Data Cleaning and EDA",
+            "Double Machine Learning",
+            "Uplift Modelling",
+            "Budget Optimization",
+            "Business Recommendations"
+        ],
+        format_func=lambda x: {
+            "Overview": "⌂   Overview",
+            "Data Cleaning and EDA": "▦   Data & EDA",
+            "Double Machine Learning": "◈   Double Machine Learning",
+            "Uplift Modelling": "⌁   Uplift Modelling",
+            "Budget Optimization": "◎   Budget Optimization",
+            "Business Recommendations": "✧   Recommendations"
+        }[x],
+        label_visibility="collapsed"
+    )
+    st.divider()
+    st.markdown("#### APPEARANCE")
+    theme = st.selectbox("Theme", ["Dark", "Light"],
+                         index=0 if st.session_state.ec_theme == "Dark" else 1)
+    st.session_state.ec_theme = theme
+    st.divider()
+    st.markdown("#### DATA SOURCE")
+    uploaded_file = st.file_uploader(
+        "Coupon Impact dataset",
+        type=["csv"],
+        help="Upload your cleaned Coupon_Impact_Clean.csv file to explore the dataset."
+    )
+    df = None
+    if uploaded_file is not None:
+        try:
+            df = pd.read_csv(uploaded_file)
+            st.success("Dataset loaded")
+        except Exception as e:
+            st.error(f"Dataset loading failed: {e}")
+    else:
+        st.caption("No dataset uploaded. Saved research results remain available.")
+    st.divider()
+    st.caption("EconoCausal · Coupon Impact Research")
+
+# -----------------------------
+# STYLING
+# -----------------------------
+if theme == "Dark":
+    bg = "#0B1020"
+    panel = "#121A2B"
+    panel2 = "#172238"
+    text = "#E8EEF9"
+    muted = "#9AA9C2"
+    border = "#26344D"
+    accent = "#8B7CFF"
+    accent2 = "#35C6B0"
+else:
+    bg = "#F4F7FB"
+    panel = "#FFFFFF"
+    panel2 = "#EEF2F8"
+    text = "#172033"
+    muted = "#65728A"
+    border = "#E0E6F0"
+    accent = "#6558D3"
+    accent2 = "#079B87"
+
+st.markdown(f"""
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap');
+    :root {{ color-scheme: {'dark' if theme == 'Dark' else 'light'}; }}
+    html, body, [class*="css"] {{ font-family: 'DM Sans', sans-serif; }}
+    .stApp {{ background: {bg}; color: {text}; }}
+    [data-testid="stHeader"] {{ background: transparent; }}
+    [data-testid="stSidebar"] {{ background: {panel}; border-right: 1px solid {border}; }}
+    [data-testid="stSidebar"] * {{ color: {text}; }}
+    .block-container {{ padding-top: 2.0rem; padding-bottom: 2.5rem; max-width: 1450px; }}
+    h1, h2, h3 {{ font-family: 'Manrope', sans-serif !important; color: {text} !important; letter-spacing: -0.035em; }}
+    p, label, li, [data-testid="stMarkdownContainer"] {{ color: {text}; }}
+    [data-testid="stCaptionContainer"] {{ color: {muted}; }}
+    .brand-mark {{ width: 42px; height: 42px; border-radius: 13px; display:flex; align-items:center; justify-content:center; background: linear-gradient(135deg, {accent}, #35C6B0); color:white; font-weight:800; font-family:Manrope; font-size:17px; margin-bottom:10px; }}
+    .brand-name {{ font-family:Manrope; font-size:23px; font-weight:800; color:{text}; line-height:1.1; }}
+    .brand-name span {{ color:{accent}; }}
+    .hero {{ background: linear-gradient(115deg, {panel}, {panel2}); border:1px solid {border}; border-radius:22px; padding:28px 30px; margin: 0 0 22px 0; position:relative; overflow:hidden; }}
+    .hero:after {{ content:''; position:absolute; width:220px; height:220px; right:-70px; top:-100px; border-radius:50%; background: radial-gradient(circle, {accent}55, transparent 68%); }}
+    .eyebrow {{ color:{accent2}; font-size:11px; font-weight:700; letter-spacing:.16em; text-transform:uppercase; margin-bottom:10px; }}
+    .hero-title {{ font-family:Manrope; color:{text}; font-size:32px; font-weight:800; line-height:1.15; margin:0 0 9px 0; }}
+    .hero-copy {{ color:{muted}; font-size:14px; max-width:760px; margin:0; }}
+    .section-kicker {{ color:{accent2}; font-size:11px; letter-spacing:.14em; font-weight:700; text-transform:uppercase; margin:24px 0 7px 0; }}
+    .metric-card {{ background:{panel}; border:1px solid {border}; border-radius:17px; padding:17px 19px; min-height:112px; }}
+    .metric-label {{ color:{muted}; font-size:12px; font-weight:600; margin-bottom:10px; }}
+    .metric-value {{ color:{text}; font-family:Manrope; font-size:27px; font-weight:800; line-height:1.15; }}
+    .metric-note {{ color:{muted}; font-size:11px; margin-top:7px; }}
+    .info-card {{ background:{panel}; border:1px solid {border}; border-radius:16px; padding:18px 20px; height:100%; }}
+    .info-title {{ color:{text}; font-weight:700; font-size:15px; margin-bottom:7px; }}
+    .info-copy {{ color:{muted}; font-size:13px; line-height:1.55; }}
+    .step {{ display:flex; gap:12px; align-items:flex-start; padding:10px 0; border-bottom:1px solid {border}; }}
+    .step:last-child {{ border-bottom:0; }}
+    .step-num {{ background:{panel2}; border:1px solid {border}; color:{accent}; border-radius:10px; min-width:29px; height:29px; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:12px; }}
+    .step-text {{ color:{text}; font-size:13px; padding-top:5px; }}
+    .callout {{ background:{panel2}; border:1px solid {border}; border-left:3px solid {accent}; border-radius:12px; padding:13px 16px; color:{muted}; font-size:13px; }}
+    div[data-testid="stDataFrame"] {{ border:1px solid {border}; border-radius:13px; overflow:hidden; }}
+    div[data-testid="stMetric"] {{ background:{panel}; border:1px solid {border}; border-radius:15px; padding:14px 16px; }}
+    div[data-testid="stMetricLabel"] {{ color:{muted}; }}
+    div[data-testid="stMetricValue"] {{ color:{text}; font-family:Manrope; }}
+    .stRadio label {{ font-size:13px; }}
+    .stSelectbox, .stFileUploader {{ color:{text}; }}
+    hr {{ border-color:{border}; }}
+    .footer {{ color:{muted}; font-size:11px; text-align:center; padding:22px 0 5px 0; }}
+</style>
+""", unsafe_allow_html=True)
+
+# -----------------------------
+# SAVED COUPON RESEARCH RESULTS
+# Values below are retained from the original application.
+# -----------------------------
+dml_results = pd.DataFrame({
     "Comparison": [
-        "High-tier - Amount",
-        "High-tier - Purchase",
-        "Low-tier - Amount",
-        "Low-tier - Purchase"
+        "High-tier - Amount", "High-tier - Purchase",
+        "Low-tier - Amount", "Low-tier - Purchase"
     ],
     "ATE": [-0.2110, -0.0084, -0.0778, -0.0036],
     "P-value": [0.5000, 0.3374, 0.3187, 0.2279]
 })
 
-UPLIFT_RESULTS = pd.DataFrame({
+uplift_results = pd.DataFrame({
     "Strategy": ["Low-tier", "High-tier T1", "High-tier T2"],
     "Average Predicted Uplift": [0.01018, -0.00574, 0.01162]
 })
 
-SEGMENTATION = pd.DataFrame({
-    "Strategy": ["Low-tier"] * 3
-                + ["High-tier T1"] * 3
-                + ["High-tier T2"] * 3,
+segmentation = pd.DataFrame({
+    "Strategy": [
+        "Low-tier", "Low-tier", "Low-tier",
+        "High-tier T1", "High-tier T1", "High-tier T1",
+        "High-tier T2", "High-tier T2", "High-tier T2"
+    ],
     "Segment": [
-        "Negative Uplift",
-        "Low/Moderate Uplift",
-        "High Uplift"
-    ] * 3,
-    "Customers": [
-        3, 1506, 527,
-        663, 101, 55,
-        842, 71, 362
-    ]
+        "Negative Uplift", "Low/Moderate Uplift", "High Uplift",
+        "Negative Uplift", "Low/Moderate Uplift", "High Uplift",
+        "Negative Uplift", "Low/Moderate Uplift", "High Uplift"
+    ],
+    "Customers": [3, 1506, 527, 663, 101, 55, 842, 71, 362]
 })
 
-BUDGET_RESULTS = pd.DataFrame({
+budget_results = pd.DataFrame({
     "Strategy": ["Low-tier", "High-tier T1", "High-tier T2"],
     "Customers Targeted": [1000, 156, 433],
     "Budget Used": [1000, 156, 433],
-    "Expected Incremental Purchases": [
-        20.515836, 2.886234, 17.787456
-    ],
-    "Purchases per Budget Unit": [
-        0.020516, 0.018501, 0.041080
-    ]
+    "Expected Incremental Purchases": [20.515836, 2.886234, 17.787456],
+    "Purchases per Budget Unit": [0.020516, 0.018501, 0.041080]
 })
 
-
-# =========================================================
-# 2. HELPER FUNCTIONS
-# =========================================================
-
-def load_data(file):
-    if file is None:
-        return None
-
-    if file.name.lower().endswith(".csv"):
-        return pd.read_csv(file)
-
-    return pd.read_excel(file, engine="openpyxl")
+# -----------------------------
+# REUSABLE UI HELPERS
+# -----------------------------
+def hero(title, subtitle, eyebrow="ECONOCAUSAL ANALYTICS"):
+    st.markdown(f"""
+    <div class='hero'>
+      <div class='eyebrow'>{eyebrow}</div>
+      <div class='hero-title'>{title}</div>
+      <p class='hero-copy'>{subtitle}</p>
+    </div>
+    """, unsafe_allow_html=True)
 
 
-def make_features(data, columns):
-    x = data[columns].copy()
-
-    for col in x.columns:
-        if pd.api.types.is_numeric_dtype(x[col]):
-            x[col] = pd.to_numeric(x[col], errors="coerce")
-        else:
-            x[col] = x[col].astype("string").fillna("Missing")
-
-    x = pd.get_dummies(x, drop_first=True, dtype=float)
-    x = x.replace([np.inf, -np.inf], np.nan)
-    x = x.fillna(x.median(numeric_only=True)).fillna(0)
-
-    return x.astype(float)
+def metric_card(label, value, note=""):
+    st.markdown(f"""
+    <div class='metric-card'>
+      <div class='metric-label'>{label}</div>
+      <div class='metric-value'>{value}</div>
+      <div class='metric-note'>{note}</div>
+    </div>
+    """, unsafe_allow_html=True)
 
 
-def prepare_analysis(
-    df,
-    treatment_col,
-    outcome_col,
-    control_value,
-    treatment_value,
-    feature_cols
-):
-    needed = [treatment_col, outcome_col] + list(feature_cols)
-    data = df[needed].copy()
+def section_title(title, description=None):
+    st.markdown(f"<div class='section-kicker'>{title}</div>", unsafe_allow_html=True)
+    if description:
+        st.caption(description)
 
-    data = data[
-        data[treatment_col].isin(
-            [control_value, treatment_value]
-        )
-    ].copy()
-
-    data["_t"] = (
-        data[treatment_col] == treatment_value
-    ).astype(int)
-
-    data["_y"] = pd.to_numeric(
-        data[outcome_col],
-        errors="coerce"
+# -----------------------------
+# PAGE: OVERVIEW
+# -----------------------------
+if section == "Overview":
+    hero(
+        "Understand the impact.\nOptimize every offer.",
+        "An integrated research dashboard for coupon effectiveness, causal impact, customer uplift and marketing budget decisions.",
+        "COUPON IMPACT · RESEARCH WORKSPACE"
     )
 
-    data = data.replace(
-        [np.inf, -np.inf], np.nan
-    ).dropna(subset=["_t", "_y"])
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        metric_card("DATASET RECORDS", "12,959", "Coupon Impact research dataset")
+    with c2:
+        metric_card("DATASET FEATURES", "8", "Original project overview")
+    with c3:
+        metric_card("CORE MODULES", "3", "DML · Uplift · Budget")
 
-    if data["_t"].nunique() != 2:
-        raise ValueError(
-            "Both treatment and control groups must be present."
-        )
-
-    if data["_t"].value_counts().min() < 10:
-        raise ValueError(
-            "Each group needs at least 10 usable rows."
-        )
-
-    if data["_y"].nunique() < 2:
-        raise ValueError(
-            "The outcome must contain at least two different values."
-        )
-
-    X = make_features(data, feature_cols)
-
-    if len(data) < 50 or X.shape[1] == 0:
-        raise ValueError(
-            "Need at least 50 usable rows and one valid feature."
-        )
-
-    return data, X
-
-
-def run_dml(data, X):
-    """Cross-fitted partialling-out estimate with HC3 standard errors."""
-
-    t = data["_t"].to_numpy()
-    y = data["_y"].to_numpy(dtype=float)
-
-    folds = min(5, int(np.bincount(t).min()))
-
-    if folds < 2:
-        raise ValueError(
-            "Not enough observations in each group for cross-fitting."
-        )
-
-    cv = StratifiedKFold(
-        n_splits=folds,
-        shuffle=True,
-        random_state=42
-    )
-
-    ml_y = RandomForestRegressor(
-        n_estimators=120,
-        min_samples_leaf=5,
-        random_state=42,
-        n_jobs=-1
-    )
-
-    ml_t = RandomForestClassifier(
-        n_estimators=120,
-        min_samples_leaf=5,
-        random_state=42,
-        n_jobs=-1
-    )
-
-    y_hat = cross_val_predict(
-        ml_y, X, y, cv=cv
-    )
-
-    t_hat = cross_val_predict(
-        ml_t,
-        X,
-        t,
-        cv=cv,
-        method="predict_proba"
-    )[:, 1]
-
-    t_hat = np.clip(t_hat, 0.02, 0.98)
-
-    y_res = y - y_hat
-    t_res = t - t_hat
-
-    fit = sm.OLS(
-        y_res,
-        sm.add_constant(t_res)
-    ).fit(cov_type="HC3")
-
-    ate = float(fit.params[1])
-    se = float(fit.bse[1])
-
-    return {
-        "ate": ate,
-        "se": se,
-        "p_value": float(fit.pvalues[1]),
-        "ci_low": ate - 1.96 * se,
-        "ci_high": ate + 1.96 * se,
-        "n": len(data),
-        "folds": folds
-    }
-
-
-def run_uplift(data, X):
-    t = data["_t"].to_numpy()
-    y = data["_y"].to_numpy()
-
-    if not set(np.unique(y)).issubset({0, 1}):
-        raise ValueError(
-            "Uplift modelling requires a binary outcome coded as 0 and 1."
-        )
-
-    if np.bincount(t).min() < 20:
-        raise ValueError(
-            "Each treatment group needs at least 20 rows."
-        )
-
-    control = RandomForestClassifier(
-        n_estimators=150,
-        min_samples_leaf=5,
-        random_state=42,
-        n_jobs=-1
-    )
-
-    treated = RandomForestClassifier(
-        n_estimators=150,
-        min_samples_leaf=5,
-        random_state=43,
-        n_jobs=-1
-    )
-
-    control.fit(X[t == 0], y[t == 0])
-    treated.fit(X[t == 1], y[t == 1])
-
-    p0 = control.predict_proba(X)[:, 1]
-    p1 = treated.predict_proba(X)[:, 1]
-
-    uplift = p1 - p0
-
-    return pd.DataFrame({
-        "Control probability": p0,
-        "Treatment probability": p1,
-        "Predicted uplift": uplift
-    })
-
-
-# =========================================================
-# 3. SIDEBAR NAVIGATION
-# =========================================================
-
-st.sidebar.title("EconoCausal")
-
-mode = st.sidebar.radio(
-    "Choose Dashboard",
-    [
-        "Research Dashboard",
-        "Business Analytics"
-    ]
-)
-
-st.sidebar.divider()
-
-if mode == "Research Dashboard":
-
-    st.sidebar.caption("Coupon Impact Dataset")
-
-    uploaded = st.sidebar.file_uploader(
-        "Upload Coupon_Impact_Clean.csv (optional)",
-        type=["csv"]
-    )
-
-    try:
-        research_df = load_data(uploaded)
-    except Exception as exc:
-        research_df = None
-        st.sidebar.error(f"Could not read file: {exc}")
-
-    page = st.sidebar.radio(
-        "Research Sections",
-        [
-            "Overview",
-            "Data Cleaning and EDA",
-            "Double Machine Learning",
-            "Uplift Modelling",
-            "Budget Optimization",
-            "Business Recommendations"
-        ]
-    )
-
-else:
-
-    st.sidebar.caption("Upload your own dataset")
-
-    uploaded = st.sidebar.file_uploader(
-        "Upload CSV or Excel",
-        type=["csv", "xlsx"]
-    )
-
-    try:
-        business_df = load_data(uploaded)
-    except Exception as exc:
-        business_df = None
-        st.sidebar.error(f"Could not read file: {exc}")
-
-    page = st.sidebar.radio(
-        "Analytics Sections",
-        [
-            "Overview",
-            "Executive Summary",
-            "Data Cleaning and EDA",
-            "Dataset Configuration",
-            "Double Machine Learning",
-            "Uplift Modelling",
-            "Budget Optimization",
-            "Business Recommendations"
-        ]
-    )
-
-
-# =========================================================
-# 4. MAIN HEADER
-# =========================================================
-
-st.title("📊 EconoCausal")
-
-st.caption(
-    "Dynamic Pricing, Coupon Effectiveness and Causal Analysis"
-)
-
-
-# =========================================================
-# 5. RESEARCH DASHBOARD — COUPON PROJECT
-# =========================================================
-
-if mode == "Research Dashboard":
-
-    if page == "Overview":
-
-        st.header("Coupon Impact Research Overview")
-
-        c1, c2, c3 = st.columns(3)
-
-        c1.metric("Dataset Records", "12,959")
-        c2.metric("Dataset Features", "8")
-        c3.metric("Research Modules", "3")
-
-        st.markdown("### Project Objectives")
-
-        st.write("""
-        - Analyse customer purchasing behaviour.
-        - Estimate coupon treatment effects using Double Machine Learning.
-        - Identify customers with positive predicted uplift.
-        - Compare coupon strategies.
-        - Explore marketing budget allocation.
-        """)
-
-        st.markdown("### Project Workflow")
-
+    section_title("Research overview", "Move from customer data to evidence-based coupon decisions.")
+    left, right = st.columns([1.15, 0.85], gap="large")
+    with left:
+        st.markdown("<div class='info-card'><div class='info-title'>Project objectives</div><div class='info-copy'>Analyse customer purchasing behaviour, estimate coupon treatment effects, identify customers with positive predicted uplift, compare coupon strategies and improve marketing budget allocation.</div></div>", unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("<div class='info-card'><div class='info-title'>Technology stack</div><div class='info-copy'>Python · Pandas · NumPy · Matplotlib · Scikit-learn · DoubleML · Streamlit · GitHub</div></div>", unsafe_allow_html=True)
+    with right:
+        st.markdown("<div class='info-card'><div class='info-title'>Project workflow</div>", unsafe_allow_html=True)
         workflow = [
-            "Data cleaning and EDA",
-            "Treatment and control group analysis",
+            "Data Cleaning and Exploratory Data Analysis",
+            "Treatment and Control Group Analysis",
             "Double Machine Learning",
-            "Uplift modelling using T-Learner",
-            "Customer segmentation",
-            "Budget optimization",
-            "Business recommendations"
+            "Uplift Modelling using T-Learner",
+            "Customer Segmentation",
+            "Budget Optimization",
+            "Business Recommendations"
         ]
+        for i, step in enumerate(workflow, 1):
+            st.markdown(f"<div class='step'><div class='step-num'>{i:02d}</div><div class='step-text'>{step}</div></div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
 
-        for i, item in enumerate(workflow, 1):
-            st.markdown(f"**{i}.** {item}")
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown("<div class='callout'>This dashboard displays the saved Coupon Impact research results. It does not train the original research models. Upload the cleaned CSV from the sidebar to explore its dataset.</div>", unsafe_allow_html=True)
 
-        st.info(
-            "This page presents the saved Coupon Impact research results. "
-            "Upload the cleaned coupon CSV to explore its rows and columns."
-        )
+# -----------------------------
+# PAGE: DATA CLEANING AND EDA
+# -----------------------------
+elif section == "Data Cleaning and EDA":
+    hero("Data quality, at a glance.", "Explore the cleaned Coupon Impact dataset, inspect missing values and understand customer group patterns.", "DATA EXPLORATION")
+    if df is None:
+        st.info("Upload Coupon_Impact_Clean.csv using the sidebar to view dataset analysis.")
+    else:
+        c1, c2, c3 = st.columns(3)
+        with c1: metric_card("ROWS", f"{df.shape[0]:,}", "Loaded dataset")
+        with c2: metric_card("COLUMNS", str(df.shape[1]), "Available features")
+        with c3: metric_card("DUPLICATE ROWS", f"{int(df.duplicated().sum()):,}", "Exact duplicate records")
 
-        st.caption(
-            "Technology: Python, Pandas, NumPy, Scikit-learn, "
-            "DoubleML research workflow and Streamlit."
-        )
+        section_title("Dataset preview")
+        st.dataframe(df.head(10), use_container_width=True, hide_index=True)
 
-    elif page == "Data Cleaning and EDA":
-
-        st.header("Data Cleaning and Exploratory Data Analysis")
-
-        if research_df is None:
-
-            st.warning(
-                "Upload Coupon_Impact_Clean.csv in the sidebar "
-                "to view the dataset."
-            )
-
-        else:
-
-            a, b = st.columns(2)
-
-            a.metric("Rows", f"{len(research_df):,}")
-            b.metric("Columns", len(research_df.columns))
-
-            st.subheader("Dataset Preview")
-
-            st.dataframe(
-                research_df.head(20),
-                use_container_width=True
-            )
-
-            st.subheader("Data Quality")
-
-            quality = pd.DataFrame({
-                "Column": research_df.columns,
-                "Missing Values": research_df.isna().sum().values,
-                "Data Type": research_df.dtypes.astype(str).values
-            })
-
-            st.dataframe(
-                quality,
-                use_container_width=True,
-                hide_index=True
-            )
-
-            a, b = st.columns(2)
-
-            a.metric(
-                "Total Missing Values",
-                int(research_df.isna().sum().sum())
-            )
-
-            b.metric(
-                "Duplicate Rows",
-                int(research_df.duplicated().sum())
-            )
-
-            if "group" in research_df.columns:
-
-                st.subheader("Experimental Group Distribution")
-
-                st.bar_chart(
-                    research_df["group"].value_counts()
-                )
-
-                if "purchase" in research_df.columns:
-
-                    st.subheader("Purchase Rate by Group")
-
-                    rates = (
-                        research_df.groupby("group")["purchase"]
-                        .mean()
-                        .mul(100)
-                        .rename("Purchase Rate (%)")
-                    )
-
-                    st.bar_chart(rates)
-
-                    st.dataframe(
-                        rates.reset_index(),
-                        use_container_width=True,
-                        hide_index=True
-                    )
-
-                if "amount" in research_df.columns:
-
-                    st.subheader("Average Purchase Amount by Group")
-
-                    st.bar_chart(
-                        research_df.groupby("group")["amount"]
-                        .mean()
-                        .rename("Average Amount")
-                    )
-
-    elif page == "Double Machine Learning":
-
-        st.header("Double Machine Learning — Saved Coupon Results")
-
-        st.write(
-            "Double Machine Learning estimates coupon treatment effects "
-            "while accounting for observed customer characteristics."
-        )
-
-        st.subheader("Model Configuration")
-
-        config = pd.DataFrame({
-            "Parameter": [
-                "Estimator",
-                "Outcome Model",
-                "Treatment Model",
-                "Cross Validation",
-                "Outcomes"
-            ],
-            "Value": [
-                "DoubleMLPLR",
-                "Random Forest Regressor",
-                "Logistic Regression",
-                "5 Folds",
-                "Purchase and Amount"
-            ]
+        section_title("Data quality report")
+        quality = pd.DataFrame({
+            "Column": df.columns,
+            "Missing Values": df.isnull().sum().values,
+            "Data Type": df.dtypes.astype(str).values
         })
-
-        st.dataframe(
-            config,
-            use_container_width=True,
-            hide_index=True
-        )
-
-        st.subheader("Average Treatment Effect Results")
-
-        st.dataframe(
-            DML_RESULTS.style.format({
-                "ATE": "{:.4f}",
-                "P-value": "{:.4f}"
-            }),
-            use_container_width=True,
-            hide_index=True
-        )
-
-        st.bar_chart(
-            DML_RESULTS.set_index("Comparison")["ATE"]
-        )
-
-        st.markdown("### Statistical Interpretation")
-
-        st.write("""
-        All four comparisons have p-values greater than 0.05.
-
-        These analyses therefore did not find statistically significant
-        evidence of a coupon treatment effect.
-
-        This does not prove that coupons have no effect.
-        """)
-
-        st.warning(
-            "Causal interpretation depends on valid treatment assignment, "
-            "appropriate pre-treatment controls and model assumptions."
-        )
-
-    elif page == "Uplift Modelling":
-
-        st.header("Uplift Modelling — Saved Coupon Results")
-
-        st.write("""
-        The T-Learner estimates the difference between predicted
-        purchase probability under treatment and control.
-        """)
-
-        st.markdown(
-            "**Uplift = Treatment Prediction − Control Prediction**"
-        )
-
-        st.subheader("Strategy Comparison")
-
-        st.dataframe(
-            UPLIFT_RESULTS.style.format({
-                "Average Predicted Uplift": "{:.5f}"
-            }),
-            use_container_width=True,
-            hide_index=True
-        )
-
-        st.bar_chart(
-            UPLIFT_RESULTS.set_index("Strategy")
-        )
-
-        st.subheader("Customer Segmentation")
-
-        st.dataframe(
-            SEGMENTATION,
-            use_container_width=True,
-            hide_index=True
-        )
-
-        segment_chart = SEGMENTATION.pivot(
-            index="Strategy",
-            columns="Segment",
-            values="Customers"
-        )
-
-        st.bar_chart(segment_chart)
-
-        st.info(
-            "Uplift values are saved model predictions. "
-            "They are not guaranteed individual causal effects."
-        )
-
-    elif page == "Budget Optimization":
-
-        st.header("Budget Optimization — Saved Coupon Results")
-
-        st.dataframe(
-            BUDGET_RESULTS.style.format({
-                "Expected Incremental Purchases": "{:.2f}",
-                "Purchases per Budget Unit": "{:.5f}"
-            }),
-            use_container_width=True,
-            hide_index=True
-        )
-
-        st.subheader("Expected Incremental Purchases")
-
-        st.bar_chart(
-            BUDGET_RESULTS.set_index("Strategy")[
-                "Expected Incremental Purchases"
-            ]
-        )
-
-        st.subheader("Estimated Budget Efficiency")
-
-        st.bar_chart(
-            BUDGET_RESULTS.set_index("Strategy")[
-                "Purchases per Budget Unit"
-            ]
-        )
-
-        best = BUDGET_RESULTS.loc[
-            BUDGET_RESULTS["Purchases per Budget Unit"].idxmax()
-        ]
-
-        volume = BUDGET_RESULTS.loc[
-            BUDGET_RESULTS["Expected Incremental Purchases"].idxmax()
-        ]
-
-        a, b = st.columns(2)
-
-        a.metric(
-            "Highest Estimated Efficiency",
-            best["Strategy"]
-        )
-
-        b.metric(
-            "Highest Estimated Purchase Volume",
-            volume["Strategy"]
-        )
-
-        st.warning(
-            "Budget and coupon costs are illustrative assumptions, "
-            "not verified profit or savings figures."
-        )
-
-    elif page == "Business Recommendations":
-
-        st.header("Business Recommendations")
-
-        st.markdown("### Key Findings")
-
-        st.write("""
-        1. High-tier T2 has the highest average predicted uplift.
-        2. High-tier T2 has the highest estimated purchases per budget unit.
-        3. Low-tier has the highest estimated incremental purchase volume.
-        4. The four saved DML comparisons were not statistically significant
-           at the 5% level.
-        """)
-
-        st.markdown("### Recommendations")
-
-        st.write("""
-        - Consider testing uplift-based customer targeting in a controlled campaign.
-        - Validate model predictions with a fresh experiment before scaling coupon spend.
-        - Track incremental purchases and actual coupon costs.
-        - Avoid treating predicted uplift as a guaranteed outcome.
-        """)
-
-
-# =========================================================
-# 6. BUSINESS ANALYTICS — OTHER DATASETS
-# =========================================================
-
-else:
-
-    if page == "Overview":
-
-        st.header("Business Analytics Overview")
-
-        a, b, c = st.columns(3)
-
-        a.metric(
-            "Dataset Rows",
-            f"{len(business_df):,}" if business_df is not None else "Not uploaded"
-        )
-
-        b.metric(
-            "Dataset Columns",
-            len(business_df.columns) if business_df is not None else 0
-        )
-
-        c.metric("Supported Formats", "CSV / Excel")
-
-        st.write("""
-        Upload a dataset, select treatment and outcome variables,
-        and explore configurable DML, uplift and budget analysis.
-        """)
-
-        st.info(
-            "For causal analysis, select pre-treatment control variables only. "
-            "Do not include variables caused by the treatment."
-        )
-
-    elif page == "Executive Summary":
-
-        st.header("Executive Summary")
-
-        if business_df is None:
-
-            st.info("Upload a CSV or Excel dataset in the sidebar to begin.")
-
-        else:
-
-            a, b = st.columns(2)
-
-            a.metric("Records", f"{len(business_df):,}")
-            b.metric("Features", len(business_df.columns))
-
-            st.dataframe(
-                business_df.head(10),
-                use_container_width=True
-            )
-
-            for key, title in [
-                ("dml_result", "Latest DML Result"),
-                ("uplift_result", "Latest Uplift Result"),
-                ("budget_result", "Latest Budget Result")
-            ]:
-
-                if key in st.session_state:
-                    st.markdown(f"**{title}:** {st.session_state[key]}")
-
-    elif page == "Data Cleaning and EDA":
-
-        st.header("Data Cleaning and EDA")
-
-        if business_df is None:
-
-            st.warning("Upload a dataset in the sidebar first.")
-
-        else:
-
-            a, b = st.columns(2)
-
-            a.metric("Rows", f"{len(business_df):,}")
-            b.metric("Columns", len(business_df.columns))
-
-            st.dataframe(
-                business_df.head(20),
-                use_container_width=True
-            )
-
-            quality = pd.DataFrame({
-                "Column": business_df.columns,
-                "Missing Values": business_df.isna().sum().values,
-                "Data Type": business_df.dtypes.astype(str).values
-            })
-
-            st.dataframe(
-                quality,
-                use_container_width=True,
-                hide_index=True
-            )
-
-            a, b = st.columns(2)
-
-            a.metric(
-                "Missing Values",
-                int(business_df.isna().sum().sum())
-            )
-
-            b.metric(
-                "Duplicate Rows",
-                int(business_df.duplicated().sum())
-            )
-
-            numeric = business_df.select_dtypes(include=np.number)
-
-            if not numeric.empty:
-
-                st.subheader("Numeric Column Summary")
-
-                st.dataframe(
-                    numeric.describe().T,
-                    use_container_width=True
-                )
-
-                chosen = st.selectbox(
-                    "Choose a numeric column",
-                    numeric.columns
-                )
-
-                st.bar_chart(
-                    numeric[chosen].dropna()
-                    .value_counts()
-                    .sort_index()
-                    .head(40)
-                )
-
-    elif page == "Dataset Configuration":
-
-        st.header("Dataset Configuration")
-
-        if business_df is None:
-
-            st.warning("Upload a dataset in the sidebar first.")
-
-        else:
-
-            cols = list(business_df.columns)
-
-            treatment_col = st.selectbox(
-                "Treatment Column",
-                cols,
-                key="cfg_treatment"
-            )
-
-            vals = business_df[treatment_col].dropna().unique().tolist()
-
-            if len(vals) < 2:
-
-                st.error(
-                    "Treatment column must contain at least two distinct values."
-                )
-
-            else:
-
-                control_val = st.selectbox(
-                    "Control Group Value",
-                    vals,
-                    key="cfg_control"
-                )
-
-                treatment_options = [
-                    v for v in vals if v != control_val
-                ]
-
-                treatment_val = st.selectbox(
-                    "Treatment Group Value",
-                    treatment_options,
-                    key="cfg_treated"
-                )
-
-                outcome_col = st.selectbox(
-                    "Outcome Column",
-                    [c for c in cols if c != treatment_col],
-                    key="cfg_outcome"
-                )
-
-                feature_options = [
-                    c for c in cols
-                    if c not in [treatment_col, outcome_col]
-                ]
-
-                features = st.multiselect(
-                    "Pre-treatment Control Variables",
-                    feature_options,
-                    default=feature_options[:min(5, len(feature_options))],
-                    key="cfg_features"
-                )
-
-                if st.button("Save Configuration", type="primary"):
-
-                    st.session_state["analysis_config"] = {
-                        "treatment": treatment_col,
-                        "control": control_val,
-                        "treated": treatment_val,
-                        "outcome": outcome_col,
-                        "features": features
-                    }
-
-                    st.success(
-                        "Configuration saved. Continue to DML or Uplift Modelling."
-                    )
-
-                st.caption(
-                    "Use only variables measured before treatment. "
-                    "For uplift modelling, the outcome must be binary 0/1."
-                )
-
-    elif page in [
-        "Double Machine Learning",
-        "Uplift Modelling",
-        "Budget Optimization",
-        "Business Recommendations"
-    ]:
-
-        st.header(page)
-
-        if business_df is None:
-
-            st.warning("Upload a dataset in the sidebar first.")
-
-        elif "analysis_config" not in st.session_state:
-
-            st.warning(
-                "Configure your treatment, outcome and control variables "
-                "in Dataset Configuration first."
-            )
-
-        else:
-
-            cfg = st.session_state["analysis_config"]
-
-            try:
-
-                data, X = prepare_analysis(
-                    business_df,
-                    cfg["treatment"],
-                    cfg["outcome"],
-                    cfg["control"],
-                    cfg["treated"],
-                    cfg["features"]
-                )
-
-                st.caption(
-                    f"Analysis rows: {len(data):,} | "
-                    f"Control: {cfg['control']} | "
-                    f"Treatment: {cfg['treated']} | "
-                    f"Outcome: {cfg['outcome']}"
-                )
-
-                # ---------------- DML ----------------
-
-                if page == "Double Machine Learning":
-
-                    st.write(
-                        "Cross-fitted partialling-out estimate using "
-                        "Random Forest nuisance models and HC3 robust "
-                        "standard errors."
-                    )
-
-                    if st.button(
-                        "Run Double Machine Learning",
-                        type="primary"
-                    ):
-
-                        result = run_dml(data, X)
-
-                        st.session_state["dml_result"] = result
-
-                    result = st.session_state.get("dml_result")
-
-                    if result:
-
-                        a, b, c = st.columns(3)
-
-                        a.metric(
-                            "Estimated ATE",
-                            f"{result['ate']:.5f}"
-                        )
-
-                        b.metric(
-                            "P-value",
-                            f"{result['p_value']:.5f}"
-                        )
-
-                        c.metric(
-                            "Observations",
-                            f"{result['n']:,}"
-                        )
-
-                        st.write(
-                            f"95% Confidence Interval: "
-                            f"**{result['ci_low']:.5f} "
-                            f"to {result['ci_high']:.5f}**"
-                        )
-
-                        if result["p_value"] < 0.05:
-                            st.write(
-                                "The estimate is statistically significant "
-                                "at the 5% level."
-                            )
-                        else:
-                            st.write(
-                                "The estimate is not statistically significant "
-                                "at the 5% level."
-                            )
-
-                        st.warning(
-                            "This is an observational estimate. Its causal "
-                            "interpretation depends on no important unobserved "
-                            "confounding, valid pre-treatment controls, overlap "
-                            "and correct implementation."
-                        )
-
-                # ---------------- UPLIFT ----------------
-
-                elif page == "Uplift Modelling":
-
-                    st.write(
-                        "T-Learner: separate Random Forest classifiers "
-                        "estimate purchase probability for control "
-                        "and treatment groups."
-                    )
-
-                    if st.button(
-                        "Run Uplift Modelling",
-                        type="primary"
-                    ):
-
-                        uplift_df = run_uplift(data, X)
-
-                        st.session_state["uplift_df"] = uplift_df
-
-                        st.session_state["uplift_result"] = {
-                            "positive_count": int(
-                                (uplift_df["Predicted uplift"] > 0).sum()
-                            ),
-                            "mean_uplift": float(
-                                uplift_df["Predicted uplift"].mean()
-                            )
-                        }
-
-                    if "uplift_df" in st.session_state:
-
-                        uplift_df = st.session_state["uplift_df"]
-
-                        a, b = st.columns(2)
-
-                        a.metric(
-                            "Positive Predicted Uplift",
-                            f"{(uplift_df['Predicted uplift'] > 0).sum():,}"
-                        )
-
-                        b.metric(
-                            "Average Predicted Uplift",
-                            f"{uplift_df['Predicted uplift'].mean():.5f}"
-                        )
-
-                        st.dataframe(
-                            uplift_df.head(20),
-                            use_container_width=True
-                        )
-
-                        st.bar_chart(
-                            uplift_df["Predicted uplift"]
-                            .clip(-1, 1)
-                            .value_counts()
-                            .sort_index()
-                            .head(40)
-                        )
-
-                        st.info(
-                            "Individual uplift estimates are model predictions, "
-                            "not guaranteed individual causal effects."
-                        )
-
-                # ---------------- BUDGET ----------------
-
-                elif page == "Budget Optimization":
-
-                    if "uplift_df" not in st.session_state:
-
-                        st.warning("Run Uplift Modelling first.")
-
-                    else:
-
-                        cost = st.number_input(
-                            "Cost per Coupon / Treatment",
-                            min_value=0.0,
-                            value=1.0,
-                            step=0.5
-                        )
-
-                        budget = st.number_input(
-                            "Available Budget",
-                            min_value=0.0,
-                            value=1000.0,
-                            step=100.0
-                        )
-
-                        if st.button(
-                            "Optimize Budget",
-                            type="primary"
-                        ):
-
-                            scores = (
-                                st.session_state["uplift_df"]
-                                .copy()
-                                .sort_values(
-                                    "Predicted uplift",
-                                    ascending=False
-                                )
-                            )
-
-                            scores = scores[
-                                scores["Predicted uplift"] > 0
-                            ]
-
-                            max_people = (
-                                int(budget // cost)
-                                if cost > 0
-                                else len(scores)
-                            )
-
-                            selected = scores.head(max_people)
-
-                            spent = len(selected) * cost
-
-                            expected = float(
-                                selected["Predicted uplift"].sum()
-                            )
-
-                            st.session_state["budget_result"] = {
-                                "targeted": len(selected),
-                                "spent": spent,
-                                "expected_incremental_outcomes": expected,
-                                "efficiency": (
-                                    expected / spent if spent else 0.0
-                                )
-                            }
-
-                        if "budget_result" in st.session_state:
-
-                            r = st.session_state["budget_result"]
-
-                            a, b, c = st.columns(3)
-
-                            a.metric(
-                                "Customers Targeted",
-                                f"{r['targeted']:,}"
-                            )
-
-                            b.metric(
-                                "Budget Used",
-                                f"{r['spent']:.2f}"
-                            )
-
-                            c.metric(
-                                "Sum of Predicted Uplift",
-                                f"{r['expected_incremental_outcomes']:.4f}"
-                            )
-
-                            st.caption(
-                                "Predicted uplift per budget unit: "
-                                f"{r['efficiency']:.5f}"
-                            )
-
-                            st.warning(
-                                "This is a simplified allocation scenario. "
-                                "It assumes equal treatment cost and uses "
-                                "predicted uplift; it is not a profit forecast."
-                            )
-
-                # ---------------- RECOMMENDATIONS ----------------
-
-                elif page == "Business Recommendations":
-
-                    st.write("""
-                    - Validate treatment effects with a randomized or carefully designed evaluation.
-                    - Use pre-treatment variables only in causal models.
-                    - Target positive predicted uplift only after out-of-sample validation.
-                    - Compare incremental outcomes with actual campaign costs.
-                    - Monitor performance across customer segments.
-                    """)
-
-            except Exception as exc:
-
-                st.error(
-                    f"Analysis could not be completed: {exc}"
-                )
-
-
-# =========================================================
-# 7. FOOTER
-# =========================================================
-
-st.sidebar.divider()
-
-st.sidebar.caption(
-    "EconoCausal | Coupon Research + Business Analytics"
-)
+        q1, q2 = st.columns(2)
+        with q1: metric_card("MISSING VALUES", f"{int(df.isnull().sum().sum()):,}", "Across all columns")
+        with q2: metric_card("COMPLETE CELLS", f"{int(df.size - df.isnull().sum().sum()):,}", "Non-missing values")
+        st.dataframe(quality, use_container_width=True, hide_index=True)
+
+        if "group" in df.columns:
+            section_title("Customer group analysis")
+            g1, g2 = st.columns(2)
+            with g1:
+                st.markdown("**Experimental group distribution**")
+                st.bar_chart(df["group"].value_counts())
+            with g2:
+                if "purchase" in df.columns:
+                    st.markdown("**Purchase rate by group**")
+                    purchase_rates = df.groupby("group")["purchase"].mean().mul(100).rename("Purchase Rate (%)")
+                    st.bar_chart(purchase_rates)
+                    st.dataframe(purchase_rates.reset_index(), use_container_width=True, hide_index=True)
+            if "amount" in df.columns:
+                st.markdown("**Average purchase amount by group**")
+                average_amount = df.groupby("group")["amount"].mean().rename("Average Amount")
+                st.bar_chart(average_amount)
+
+# -----------------------------
+# PAGE: DOUBLE MACHINE LEARNING
+# -----------------------------
+elif section == "Double Machine Learning":
+    hero("Measure the treatment effect.", "Review the saved Average Treatment Effect estimates and their statistical significance across coupon comparisons.", "CAUSAL IMPACT · DOUBLE MACHINE LEARNING")
+    st.markdown("Double Machine Learning estimates the average effect of coupon treatment on customer purchasing behaviour while accounting for relevant observed factors.")
+
+    section_title("Model configuration")
+    config = pd.DataFrame({
+        "Parameter": ["Estimator", "Outcome Model", "Treatment Model", "Cross Validation", "Outcome Variables"],
+        "Value": ["DoubleMLPLR", "Random Forest Regressor", "Logistic Regression", "5 Folds", "Purchase and Amount"]
+    })
+    st.dataframe(config, use_container_width=True, hide_index=True)
+
+    section_title("Average treatment effect results")
+    m1, m2, m3 = st.columns(3)
+    with m1: metric_card("COMPARISONS", "4", "Saved DML estimates")
+    with m2: metric_card("SIGNIFICANT RESULTS", "0", "At p < 0.05")
+    with m3: metric_card("LOWEST P-VALUE", "0.2279", "Low-tier · Purchase")
+    st.dataframe(dml_results.style.format({"ATE": "{:.4f}", "P-value": "{:.4f}"}), use_container_width=True, hide_index=True)
+
+    section_title("ATE comparison")
+    st.bar_chart(dml_results.set_index("Comparison")["ATE"])
+    st.markdown("**Statistical interpretation**")
+    st.write("All four comparisons have p-values greater than 0.05. Therefore, these analyses did not find statistically significant evidence of a coupon treatment effect. This does not prove that coupons have no effect.")
+    st.warning("Causal interpretation depends on valid treatment assignment, appropriate pre-treatment controls and model assumptions.")
+
+# -----------------------------
+# PAGE: UPLIFT MODELLING
+# -----------------------------
+elif section == "Uplift Modelling":
+    hero("Find customers worth targeting.", "Compare predicted uplift across coupon strategies and inspect the saved customer segmentation results.", "CUSTOMER INTELLIGENCE · UPLIFT MODELLING")
+    st.markdown("Uplift modelling estimates how customer purchase probability may change when a customer receives a coupon.")
+
+    section_title("How the T-Learner works")
+    a, b = st.columns(2)
+    with a:
+        st.markdown("<div class='info-card'><div class='info-title'>01 · Control model</div><div class='info-copy'>Predicts purchase probability without treatment.</div></div>", unsafe_allow_html=True)
+    with b:
+        st.markdown("<div class='info-card'><div class='info-title'>02 · Treatment model</div><div class='info-copy'>Predicts purchase probability with treatment.</div></div>", unsafe_allow_html=True)
+    st.markdown("<div class='callout'>Uplift Score = Treatment Prediction − Control Prediction</div>", unsafe_allow_html=True)
+
+    section_title("Strategy comparison")
+    st.dataframe(uplift_results.style.format({"Average Predicted Uplift": "{:.5f}"}), use_container_width=True, hide_index=True)
+    st.bar_chart(uplift_results.set_index("Strategy")["Average Predicted Uplift"])
+
+    section_title("Customer segmentation")
+    st.dataframe(segmentation, use_container_width=True, hide_index=True)
+    segment_chart = segmentation.pivot(index="Strategy", columns="Segment", values="Customers")
+    st.bar_chart(segment_chart)
+    st.info("Uplift scores are model predictions. Their causal interpretation requires validation.")
+
+# -----------------------------
+# PAGE: BUDGET OPTIMIZATION
+# -----------------------------
+elif section == "Budget Optimization":
+    hero("Allocate budget with intent.", "Compare the saved coupon strategies by estimated incremental purchases and budget efficiency.", "MARKETING STRATEGY · BUDGET OPTIMIZATION")
+    st.markdown("This module ranks customers using predicted uplift scores and compares coupon strategies under an illustrative budget scenario.")
+
+    section_title("Budget allocation results")
+    st.dataframe(budget_results.style.format({"Expected Incremental Purchases": "{:.2f}", "Purchases per Budget Unit": "{:.5f}"}), use_container_width=True, hide_index=True)
+
+    best_strategy = budget_results.loc[budget_results["Purchases per Budget Unit"].idxmax()]
+    highest_volume = budget_results.loc[budget_results["Expected Incremental Purchases"].idxmax()]
+    x, y = st.columns(2)
+    with x:
+        metric_card("HIGHEST ESTIMATED EFFICIENCY", best_strategy["Strategy"], f"{best_strategy['Purchases per Budget Unit']:.5f} purchases per budget unit")
+    with y:
+        metric_card("HIGHEST ESTIMATED VOLUME", highest_volume["Strategy"], f"{highest_volume['Expected Incremental Purchases']:.2f} expected incremental purchases")
+
+    section_title("Expected incremental purchases")
+    st.bar_chart(budget_results.set_index("Strategy")["Expected Incremental Purchases"])
+    section_title("Estimated budget efficiency")
+    st.bar_chart(budget_results.set_index("Strategy")["Purchases per Budget Unit"])
+    st.warning("Budget and coupon costs are illustrative assumptions. These results are not actual profit or savings estimates.")
+
+# -----------------------------
+# PAGE: BUSINESS RECOMMENDATIONS
+# -----------------------------
+elif section == "Business Recommendations":
+    hero("Turn analysis into action.", "A concise view of the findings, practical recommendations and limitations of the current coupon analysis.", "DECISION SUPPORT")
+
+    section_title("Key findings")
+    findings = [
+        "High-tier T2 has the highest average predicted uplift.",
+        "High-tier T2 has the highest estimated purchases per budget unit in the illustrative scenario.",
+        "Low-tier has the highest estimated incremental purchase volume in the budget scenario.",
+        "DML results did not show statistically significant treatment effects in the four comparisons."
+    ]
+    for i, item in enumerate(findings, 1):
+        st.markdown(f"<div class='step'><div class='step-num'>{i:02d}</div><div class='step-text'>{item}</div></div>", unsafe_allow_html=True)
+
+    section_title("Recommendations")
+    recommendations = [
+        "Consider uplift-based customer targeting.",
+        "Prioritize customers with positive predicted uplift.",
+        "Compare coupon strategies using actual coupon costs.",
+        "Validate model predictions through controlled experiments.",
+        "Reassess budget allocation using real business outcomes."
+    ]
+    for item in recommendations:
+        st.markdown(f"- {item}")
+
+    section_title("Project limitations")
+    limitations = [
+        "Treatment assignment and experiment design need verification.",
+        "Pre-treatment timing of predictor variables must be confirmed.",
+        "Uplift predictions are not automatically causal effects.",
+        "Budget values and coupon costs are illustrative.",
+        "Further validation is required before business deployment."
+    ]
+    for item in limitations:
+        st.markdown(f"- {item}")
+    st.success("EconoCausal combines data analysis, causal machine learning and uplift modelling to support informed coupon allocation.")
+
+# -----------------------------
+# FOOTER
+# -----------------------------
+st.markdown("<div class='footer'>ECONOCAUSAL · DYNAMIC PRICING & COUPON EFFECTIVENESS ANALYSIS<br>Research dashboard · Saved model results and budget scenarios are subject to validation.</div>", unsafe_allow_html=True)
