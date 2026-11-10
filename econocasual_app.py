@@ -850,37 +850,635 @@ st.caption(
     "Research application | Results require appropriate "
     "statistical and business validation."
 )
+
 import streamlit as st
 import pandas as pd
 import numpy as np
-
-# ============================================================
-# ECONOCAUSAL | UI/UX REDESIGN
-# Original Coupon Impact results and dashboard functionality
-# are preserved. This update changes presentation and layout.
-# ============================================================
+from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import KFold, StratifiedKFold, cross_val_predict
+from sklearn.metrics import mean_squared_error, roc_auc_score
+import statsmodels.api as sm
 
 st.set_page_config(
-    page_title="EconoCausal | Coupon Intelligence",
-    page_icon="📈",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    page_title="EconoCausal",
+    page_icon="📊",
+    layout="wide"
 )
 
-# -----------------------------
-# THEME
-# -----------------------------
-if "ec_theme" not in st.session_state:
-    st.session_state.ec_theme = "Dark"
+# ---------------- SAVED COUPON RESEARCH RESULTS ----------------
 
-with st.sidebar:
-    st.markdown("<div class='brand-mark'>EC</div>", unsafe_allow_html=True)
-    st.markdown("<div class='brand-name'>Econo<span>Causal</span></div>", unsafe_allow_html=True)
-    st.caption("CAUSAL INTELLIGENCE · COUPON ANALYTICS")
-    st.divider()
-    st.markdown("#### WORKSPACE")
-    section = st.radio(
-        "Navigation",
+DML_RESULTS = pd.DataFrame({
+    "Comparison": [
+        "High-tier - Amount",
+        "High-tier - Purchase",
+        "Low-tier - Amount",
+        "Low-tier - Purchase"
+    ],
+    "ATE": [-0.2110, -0.0084, -0.0778, -0.0036],
+    "P-value": [0.5000, 0.3374, 0.3187, 0.2279],
+})
+
+UPLIFT_RESULTS = pd.DataFrame({
+    "Strategy": ["Low-tier", "High-tier T1", "High-tier T2"],
+    "Average Predicted Uplift": [0.01018, -0.00574, 0.01162],
+})
+
+SEGMENTATION = pd.DataFrame({
+    "Strategy": ["Low-tier"] * 3 + ["High-tier T1"] * 3 + ["High-tier T2"] * 3,
+    "Segment": [
+        "Negative Uplift",
+        "Low/Moderate Uplift",
+        "High Uplift"
+    ] * 3,
+    "Customers": [3, 1506, 527, 663, 101, 55, 842, 71, 362],
+})
+
+BUDGET_RESULTS = pd.DataFrame({
+    "Strategy": ["Low-tier", "High-tier T1", "High-tier T2"],
+    "Customers Targeted": [1000, 156, 433],
+    "Budget Used": [1000, 156, 433],
+    "Expected Incremental Purchases": [
+        20.515836, 2.886234, 17.787456
+    ],
+    "Purchases per Budget Unit": [
+        0.020516, 0.018501, 0.041080
+    ],
+})
+
+
+# ---------------- HELPERS ----------------
+
+def load_data(file):
+    if file is None:
+        return None
+
+    if file.name.lower().endswith(".csv"):
+        return pd.read_csv(file)
+
+    return pd.read_excel(file, engine="openpyxl")
+
+
+def make_features(data, columns):
+    x = data[columns].copy()
+
+    for col in x.columns:
+        if pd.api.types.is_numeric_dtype(x[col]):
+            x[col] = pd.to_numeric(x[col], errors="coerce")
+        else:
+            x[col] = x[col].astype("string").fillna("Missing")
+
+    x = pd.get_dummies(x, drop_first=True, dtype=float)
+    x = x.replace([np.inf, -np.inf], np.nan)
+    x = x.fillna(x.median(numeric_only=True)).fillna(0)
+
+    return x.astype(float)
+
+
+def prepare_analysis(
+    df,
+    treatment_col,
+    outcome_col,
+    control_value,
+    treatment_value,
+    feature_cols
+):
+    needed = [treatment_col, outcome_col] + list(feature_cols)
+    data = df[needed].copy()
+
+    data = data[
+        data[treatment_col].isin([control_value, treatment_value])
+    ].copy()
+
+    data["_t"] = (
+        data[treatment_col] == treatment_value
+    ).astype(int)
+
+    data["_y"] = pd.to_numeric(
+        data[outcome_col],
+        errors="coerce"
+    )
+
+    data = data.replace(
+        [np.inf, -np.inf], np.nan
+    ).dropna(subset=["_t", "_y"])
+
+    if data["_t"].nunique() != 2:
+        raise ValueError(
+            "Both treatment and control groups must be present."
+        )
+
+    if data["_t"].value_counts().min() < 10:
+        raise ValueError(
+            "Each group needs at least 10 usable rows."
+        )
+
+    if data["_y"].nunique() < 2:
+        raise ValueError(
+            "The outcome must contain at least two different values."
+        )
+
+    X = make_features(data, feature_cols)
+
+    if len(data) < 50 or X.shape[1] == 0:
+        raise ValueError(
+            "Need at least 50 usable rows and one valid feature."
+        )
+
+    return data, X
+
+
+def run_dml(data, X):
+    """Cross-fitted partialling-out estimate with HC3 standard errors."""
+
+    t = data["_t"].to_numpy()
+    y = data["_y"].to_numpy(dtype=float)
+
+    folds = min(5, int(np.bincount(t).min()))
+
+    if folds < 2:
+        raise ValueError(
+            "Not enough observations in each treatment group for cross-fitting."
+        )
+
+    cv = StratifiedKFold(
+        n_splits=folds,
+        shuffle=True,
+        random_state=42
+    )
+
+    ml_y = RandomForestRegressor(
+        n_estimators=120,
+        min_samples_leaf=5,
+        random_state=42,
+        n_jobs=-1
+    )
+
+    ml_t = RandomForestClassifier(
+        n_estimators=120,
+        min_samples_leaf=5,
+        random_state=42,
+        n_jobs=-1
+    )
+
+    y_hat = cross_val_predict(
+        ml_y, X, y, cv=cv, n_jobs=None
+    )
+
+    t_hat = cross_val_predict(
+        ml_t,
+        X,
+        t,
+        cv=cv,
+        method="predict_proba"
+    )[:, 1]
+
+    t_hat = np.clip(t_hat, 0.02, 0.98)
+
+    y_res = y - y_hat
+    t_res = t - t_hat
+
+    fit = sm.OLS(
+        y_res,
+        sm.add_constant(t_res)
+    ).fit(cov_type="HC3")
+
+    ate = float(fit.params[1])
+    se = float(fit.bse[1])
+    p_value = float(fit.pvalues[1])
+
+    return {
+        "ate": ate,
+        "se": se,
+        "p_value": p_value,
+        "ci_low": ate - 1.96 * se,
+        "ci_high": ate + 1.96 * se,
+        "n": len(data),
+        "folds": folds
+    }
+
+
+def run_uplift(data, X):
+    t = data["_t"].to_numpy()
+    y = data["_y"].to_numpy()
+
+    if not set(np.unique(y)).issubset({0, 1}):
+        raise ValueError(
+            "Uplift modelling requires a binary outcome coded as 0 and 1."
+        )
+
+    if np.bincount(t).min() < 20:
+        raise ValueError(
+            "Each treatment group needs at least 20 rows for uplift modelling."
+        )
+
+    control = RandomForestClassifier(
+        n_estimators=150,
+        min_samples_leaf=5,
+        random_state=42,
+        n_jobs=-1
+    )
+
+    treated = RandomForestClassifier(
+        n_estimators=150,
+        min_samples_leaf=5,
+        random_state=43,
+        n_jobs=-1
+    )
+
+    control.fit(X[t == 0], y[t == 0])
+    treated.fit(X[t == 1], y[t == 1])
+
+    p0 = control.predict_proba(X)[:, 1]
+    p1 = treated.predict_proba(X)[:, 1]
+
+    uplift = p1 - p0
+
+    return pd.DataFrame({
+        "Control probability": p0,
+        "Treatment probability": p1,
+        "Predicted uplift": uplift
+    })
+
+
+# ---------------- ENTERPRISE UI DESIGN ----------------
+
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap');
+
+:root {
+    --ec-bg: #071521;
+    --ec-panel: #0d2232;
+    --ec-panel2: #102b3c;
+    --ec-border: #1c3a4b;
+    --ec-text: #e8f1f5;
+    --ec-muted: #91a8b6;
+    --ec-teal: #22c6b2;
+    --ec-blue: #5c9dff;
+}
+
+html, body, [class*="css"] {
+    font-family: 'DM Sans', sans-serif;
+}
+
+.stApp {
+    background:
+        radial-gradient(
+            ellipse at 78% -15%,
+            rgba(24,116,133,.19),
+            transparent 38%
+        ),
+        #071521;
+    color: var(--ec-text);
+}
+
+[data-testid="stHeader"] {
+    background: rgba(7,21,33,.78);
+}
+
+[data-testid="stSidebar"] {
+    background: linear-gradient(
+        180deg,
+        #0b1d2b 0%,
+        #091925 100%
+    );
+    border-right: 1px solid #1c3a4b;
+    min-width: 275px;
+}
+
+[data-testid="stSidebar"] > div:first-child {
+    padding-top: 1.4rem;
+}
+
+[data-testid="stSidebar"] h1,
+[data-testid="stSidebar"] h2,
+[data-testid="stSidebar"] h3 {
+    font-family: 'Manrope', sans-serif;
+    color: #f1f7fa;
+}
+
+[data-testid="stSidebar"] [data-testid="stRadio"] label {
+    padding: 9px 12px;
+    border-radius: 10px;
+    margin: 3px 0;
+    color: #b8cbd5;
+    font-size: .92rem;
+    transition: all .15s ease;
+}
+
+[data-testid="stSidebar"] [data-testid="stRadio"] label:hover {
+    background: #132f40;
+    color: #fff;
+}
+
+[data-testid="stSidebar"] [data-testid="stFileUploader"] section {
+    background: #102a3a;
+    border: 1px dashed #2d5968;
+    border-radius: 12px;
+}
+
+.block-container {
+    max-width: 1500px;
+    padding-top: 2.1rem;
+    padding-bottom: 3rem;
+}
+
+h1, h2, h3 {
+    font-family: 'Manrope', sans-serif !important;
+    letter-spacing: -.035em;
+    color: #f1f7fa;
+}
+
+h1 {
+    font-size: 2.15rem !important;
+    font-weight: 800 !important;
+}
+
+h2 {
+    font-size: 1.55rem !important;
+    font-weight: 700 !important;
+}
+
+h3 {
+    font-size: 1.12rem !important;
+    font-weight: 700 !important;
+}
+
+p, li {
+    color: #c3d2da;
+    line-height: 1.65;
+}
+
+[data-testid="stMetric"] {
+    background: linear-gradient(145deg,#102a3b,#0c2130);
+    border: 1px solid #1d4051;
+    border-radius: 16px;
+    padding: 19px 20px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.12);
+    min-height: 122px;
+}
+
+[data-testid="stMetricLabel"] {
+    color: #9fb7c4 !important;
+    font-size: .84rem !important;
+}
+
+[data-testid="stMetricValue"] {
+    color: #f2f8fa !important;
+    font-family: 'Manrope', sans-serif;
+    font-weight: 750;
+}
+
+[data-testid="stMetricDelta"] {
+    font-size: .78rem;
+}
+
+[data-testid="stVerticalBlockBorderWrapper"] > div {
+    border-color: #1d3b4b !important;
+    border-radius: 16px !important;
+}
+
+[data-testid="stDataFrame"] {
+    border: 1px solid #1d3b4b;
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+[data-testid="stPlotlyChart"],
+[data-testid="stVegaLiteChart"] {
+    background: #0c2030;
+    border: 1px solid #1b394a;
+    border-radius: 14px;
+    padding: 10px;
+}
+
+.stButton > button,
+[data-testid="stDownloadButton"] button {
+    background: linear-gradient(100deg,#0e9f91,#22c6b2);
+    color: #041c24;
+    border: 0;
+    border-radius: 10px;
+    font-weight: 700;
+    padding: .58rem 1.1rem;
+    box-shadow: 0 5px 18px rgba(34,198,178,.14);
+}
+
+.stButton > button:hover,
+[data-testid="stDownloadButton"] button:hover {
+    background: #51d9c8;
+    color: #041c24;
+    border: 0;
+}
+
+[data-baseweb="select"] > div,
+[data-baseweb="input"] > div,
+[data-baseweb="textarea"] > div {
+    background: #102a3a;
+    border-color: #29495a;
+    border-radius: 9px;
+}
+
+hr {
+    border-color: #1d3b4b !important;
+}
+
+.ec-brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 0 0 20px;
+}
+
+.ec-logo {
+    width: 43px;
+    height: 43px;
+    border-radius: 13px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(145deg,#22c6b2,#397bd7);
+    color: #061923;
+    font-size: 21px;
+    font-weight: 900;
+    box-shadow: 0 8px 24px rgba(34,198,178,.2);
+}
+
+.ec-brand-name {
+    font-family: 'Manrope', sans-serif;
+    color: #f2f8fa;
+    font-size: 1.35rem;
+    font-weight: 800;
+    letter-spacing: -.05em;
+}
+
+.ec-brand-sub {
+    color: #7895a5;
+    font-size: .65rem;
+    letter-spacing: .13em;
+    font-weight: 700;
+    margin-top: 1px;
+}
+
+.ec-hero {
+    position: relative;
+    overflow: hidden;
+    padding: 27px 30px;
+    margin: 0 0 25px;
+    border: 1px solid #1d4657;
+    border-radius: 20px;
+    background: linear-gradient(
+        112deg,
+        rgba(15,48,65,.98),
+        rgba(10,34,50,.96) 58%,
+        rgba(10,57,65,.94)
+    );
+    box-shadow: 0 18px 45px rgba(0,0,0,.16);
+}
+
+.ec-hero:after {
+    content: '';
+    position: absolute;
+    width: 250px;
+    height: 250px;
+    right: 3%;
+    top: -140px;
+    border-radius: 50%;
+    border: 1px solid rgba(64,210,192,.2);
+    box-shadow:
+        0 0 0 25px rgba(64,210,192,.025),
+        0 0 0 55px rgba(64,210,192,.02);
+}
+
+.ec-kicker {
+    color: #48d7c4;
+    font-size: .7rem;
+    letter-spacing: .16em;
+    font-weight: 800;
+    text-transform: uppercase;
+    margin-bottom: 9px;
+}
+
+.ec-hero-title {
+    color: #f4f9fb;
+    font-family: 'Manrope', sans-serif;
+    font-size: 2rem;
+    line-height: 1.18;
+    font-weight: 800;
+    letter-spacing: -.045em;
+    margin: 0 0 9px;
+}
+
+.ec-hero-copy {
+    color: #a9c1cc;
+    font-size: .95rem;
+    max-width: 780px;
+    margin: 0;
+}
+
+.ec-pill {
+    display: inline-block;
+    margin-top: 17px;
+    padding: 6px 10px;
+    border: 1px solid rgba(72,215,196,.25);
+    border-radius: 30px;
+    background: rgba(34,198,178,.09);
+    color: #7be4d5;
+    font-size: .72rem;
+    font-weight: 700;
+}
+
+.ec-section-label {
+    color: #48d7c4;
+    font-size: .69rem;
+    letter-spacing: .14em;
+    font-weight: 800;
+    text-transform: uppercase;
+    margin: 8px 0 7px;
+}
+
+.ec-card {
+    height: 100%;
+    padding: 17px 19px;
+    border: 1px solid #1d4051;
+    border-radius: 15px;
+    background: linear-gradient(145deg,#102a3b,#0c2130);
+}
+
+.ec-card-title {
+    color: #91aab8;
+    font-size: .78rem;
+    font-weight: 600;
+}
+
+.ec-card-value {
+    color: #f1f7fa;
+    font-family: 'Manrope', sans-serif;
+    font-size: 1.7rem;
+    font-weight: 800;
+    margin-top: 7px;
+    letter-spacing: -.04em;
+}
+
+.ec-card-note {
+    color: #56d7c4;
+    font-size: .72rem;
+    margin-top: 5px;
+}
+
+.ec-footer {
+    color: #6f8b9a;
+    font-size: .72rem;
+    border-top: 1px solid #1d3b4b;
+    margin-top: 35px;
+    padding-top: 14px;
+}
+
+@media (max-width:800px) {
+    .block-container { padding: 1rem; }
+    .ec-hero { padding: 21px; }
+    .ec-hero-title { font-size: 1.55rem; }
+}
+</style>
+""", unsafe_allow_html=True)
+
+
+# ---------------- SIDEBAR ----------------
+
+st.sidebar.markdown("""
+<div class="ec-brand">
+    <div class="ec-logo">EC</div>
+    <div>
+        <div class="ec-brand-name">EconoCausal</div>
+        <div class="ec-brand-sub">CAUSAL INTELLIGENCE</div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+mode = st.sidebar.radio(
+    "Choose dashboard",
+    ["Research Dashboard", "Business Analytics"]
+)
+
+st.sidebar.divider()
+
+if mode == "Research Dashboard":
+
+    st.sidebar.caption("Coupon Impact Dataset")
+
+    uploaded = st.sidebar.file_uploader(
+        "Upload Coupon_Impact_Clean.csv (optional)",
+        type=["csv"]
+    )
+
+    try:
+        research_df = load_data(uploaded)
+    except Exception as exc:
+        research_df = None
+        st.sidebar.error(f"Could not read file: {exc}")
+
+    page = st.sidebar.radio(
+        "Research sections",
         [
             "Overview",
             "Data Cleaning and EDA",
@@ -888,388 +1486,202 @@ with st.sidebar:
             "Uplift Modelling",
             "Budget Optimization",
             "Business Recommendations"
-        ],
-        format_func=lambda x: {
-            "Overview": "⌂   Overview",
-            "Data Cleaning and EDA": "▦   Data & EDA",
-            "Double Machine Learning": "◈   Double Machine Learning",
-            "Uplift Modelling": "⌁   Uplift Modelling",
-            "Budget Optimization": "◎   Budget Optimization",
-            "Business Recommendations": "✧   Recommendations"
-        }[x],
-        label_visibility="collapsed"
+        ]
     )
-    st.divider()
-    st.markdown("#### APPEARANCE")
-    theme = st.selectbox("Theme", ["Dark", "Light"],
-                         index=0 if st.session_state.ec_theme == "Dark" else 1)
-    st.session_state.ec_theme = theme
-    st.divider()
-    st.markdown("#### DATA SOURCE")
-    uploaded_file = st.file_uploader(
-        "Coupon Impact dataset",
-        type=["csv"],
-        help="Upload your cleaned Coupon_Impact_Clean.csv file to explore the dataset."
-    )
-    df = None
-    if uploaded_file is not None:
-        try:
-            df = pd.read_csv(uploaded_file)
-            st.success("Dataset loaded")
-        except Exception as e:
-            st.error(f"Dataset loading failed: {e}")
-    else:
-        st.caption("No dataset uploaded. Saved research results remain available.")
-    st.divider()
-    st.caption("EconoCausal · Enterprise Research Workspace")
 
-# -----------------------------
-# STYLING
-# -----------------------------
-if theme == "Dark":
-    # Enterprise fintech palette: deep navy + teal
-    bg = "#071522"
-    panel = "#0D2030"
-    panel2 = "#122B3D"
-    text = "#EAF3F7"
-    muted = "#91A9B8"
-    border = "#1E3B4C"
-    accent = "#19B6A2"
-    accent2 = "#63D6C5"
 else:
-    bg = "#F2F7F8"
-    panel = "#FFFFFF"
-    panel2 = "#EAF3F4"
-    text = "#102A36"
-    muted = "#607985"
-    border = "#D8E5E8"
-    accent = "#087F79"
-    accent2 = "#0C9E91"
 
-st.markdown(f"""
-<style>
-    @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap');
-    :root {{ color-scheme: {'dark' if theme == 'Dark' else 'light'}; }}
-    html, body, [class*="css"] {{ font-family: 'DM Sans', sans-serif; }}
-    .stApp {{ background: {bg}; color: {text}; }}
-    [data-testid="stHeader"] {{ background: transparent; }}
-    [data-testid="stSidebar"] {{ background: {panel}; border-right: 1px solid {border}; }}
-    [data-testid="stSidebar"] * {{ color: {text}; }}
-    .block-container {{ padding-top: 2.0rem; padding-bottom: 2.5rem; max-width: 1450px; }}
-    h1, h2, h3 {{ font-family: 'Manrope', sans-serif !important; color: {text} !important; letter-spacing: -0.035em; }}
-    p, label, li, [data-testid="stMarkdownContainer"] {{ color: {text}; }}
-    [data-testid="stCaptionContainer"] {{ color: {muted}; }}
-    .brand-mark {{ width: 42px; height: 42px; border-radius: 13px; display:flex; align-items:center; justify-content:center; background: linear-gradient(135deg, {accent}, #35C6B0); color:white; font-weight:800; font-family:Manrope; font-size:17px; margin-bottom:10px; }}
-    .brand-name {{ font-family:Manrope; font-size:23px; font-weight:800; color:{text}; line-height:1.1; }}
-    .brand-name span {{ color:{accent}; }}
-    .hero {{ background: linear-gradient(112deg, {panel} 0%, {panel2} 68%, #123D49 150%); border:1px solid {border}; border-radius:20px; padding:34px 36px; margin: 0 0 24px 0; position:relative; overflow:hidden; box-shadow:0 16px 42px rgba(0,0,0,.12); }}
-    .hero:after {{ content:''; position:absolute; width:330px; height:330px; right:-105px; top:-170px; border-radius:50%; background: radial-gradient(circle, {accent}45, transparent 68%); }}
-    .eyebrow {{ color:{accent2}; font-size:11px; font-weight:700; letter-spacing:.16em; text-transform:uppercase; margin-bottom:10px; }}
-    .hero-title {{ font-family:Manrope; color:{text}; font-size:36px; font-weight:800; line-height:1.12; margin:0 0 12px 0; max-width:780px; white-space:pre-line; }}
-    .hero-copy {{ color:{muted}; font-size:14px; max-width:760px; margin:0; }}
-    .section-kicker {{ color:{accent2}; font-size:11px; letter-spacing:.14em; font-weight:700; text-transform:uppercase; margin:24px 0 7px 0; }}
-    .metric-card {{ background:linear-gradient(145deg, {panel}, {panel2}); border:1px solid {border}; border-top:3px solid {accent}; border-radius:15px; padding:19px 20px; min-height:124px; box-shadow:0 8px 24px rgba(2,20,30,.08); }}
-    .metric-label {{ color:{muted}; font-size:12px; font-weight:600; margin-bottom:10px; }}
-    .metric-value {{ color:{text}; font-family:Manrope; font-size:27px; font-weight:800; line-height:1.15; }}
-    .metric-note {{ color:{muted}; font-size:11px; margin-top:7px; }}
-    .info-card {{ background:{panel}; border:1px solid {border}; border-radius:15px; padding:20px 21px; height:100%; box-shadow:0 7px 22px rgba(2,20,30,.06); }}
-    .info-title {{ color:{text}; font-weight:700; font-size:15px; margin-bottom:7px; }}
-    .info-copy {{ color:{muted}; font-size:13px; line-height:1.55; }}
-    .step {{ display:flex; gap:12px; align-items:flex-start; padding:10px 0; border-bottom:1px solid {border}; }}
-    .step:last-child {{ border-bottom:0; }}
-    .step-num {{ background:{panel2}; border:1px solid {border}; color:{accent}; border-radius:10px; min-width:29px; height:29px; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:12px; }}
-    .step-text {{ color:{text}; font-size:13px; padding-top:5px; }}
-    .callout {{ background:{panel2}; border:1px solid {border}; border-left:4px solid {accent}; border-radius:11px; padding:15px 18px; color:{muted}; font-size:13px; }}
-    div[data-testid="stDataFrame"] {{ border:1px solid {border}; border-radius:13px; overflow:hidden; }}
-    div[data-testid="stMetric"] {{ background:{panel}; border:1px solid {border}; border-radius:15px; padding:14px 16px; }}
-    div[data-testid="stMetricLabel"] {{ color:{muted}; }}
-    div[data-testid="stMetricValue"] {{ color:{text}; font-family:Manrope; }}
-    .stRadio label {{ font-size:13px; }}
-    .stSelectbox, .stFileUploader {{ color:{text}; }}
-    hr {{ border-color:{border}; }}
-    .footer {{ color:{muted}; font-size:11px; text-align:center; padding:25px 0 7px 0; letter-spacing:.04em; }}
-    [data-testid="stSidebar"] {{ box-shadow: 8px 0 30px rgba(0,0,0,.06); }}
-    [data-testid="stSidebar"] [data-testid="stRadio"] label {{ padding:8px 10px; border-radius:9px; }}
-    [data-testid="stSidebar"] [data-testid="stRadio"] label:hover {{ background:{panel2}; }}
-    div[data-testid="stButton"] > button {{ border-radius:10px; border:1px solid {border}; font-weight:700; min-height:42px; }}
-    div[data-testid="stButton"] > button[kind="primary"] {{ background:{accent}; border-color:{accent}; color:#FFFFFF; }}
-    div[data-testid="stSelectbox"] > div > div, div[data-testid="stFileUploader"] section {{ border-radius:11px; }}
-    div[data-testid="stDataFrame"] {{ box-shadow:0 8px 22px rgba(2,20,30,.05); }}
-    [data-testid="stPlotlyChart"], [data-testid="stVegaLiteChart"] {{ background:{panel}; border:1px solid {border}; border-radius:15px; padding:8px; }}
-    @media (max-width: 900px) {{ .hero {{ padding:24px 22px; }} .hero-title {{ font-size:28px; }} .metric-value {{ font-size:23px; }} }}
-</style>
-""", unsafe_allow_html=True)
+    st.sidebar.caption("Upload your own compatible dataset")
 
-# -----------------------------
-# SAVED COUPON RESEARCH RESULTS
-# Values below are retained from the original application.
-# -----------------------------
-dml_results = pd.DataFrame({
-    "Comparison": [
-        "High-tier - Amount", "High-tier - Purchase",
-        "Low-tier - Amount", "Low-tier - Purchase"
-    ],
-    "ATE": [-0.2110, -0.0084, -0.0778, -0.0036],
-    "P-value": [0.5000, 0.3374, 0.3187, 0.2279]
-})
-
-uplift_results = pd.DataFrame({
-    "Strategy": ["Low-tier", "High-tier T1", "High-tier T2"],
-    "Average Predicted Uplift": [0.01018, -0.00574, 0.01162]
-})
-
-segmentation = pd.DataFrame({
-    "Strategy": [
-        "Low-tier", "Low-tier", "Low-tier",
-        "High-tier T1", "High-tier T1", "High-tier T1",
-        "High-tier T2", "High-tier T2", "High-tier T2"
-    ],
-    "Segment": [
-        "Negative Uplift", "Low/Moderate Uplift", "High Uplift",
-        "Negative Uplift", "Low/Moderate Uplift", "High Uplift",
-        "Negative Uplift", "Low/Moderate Uplift", "High Uplift"
-    ],
-    "Customers": [3, 1506, 527, 663, 101, 55, 842, 71, 362]
-})
-
-budget_results = pd.DataFrame({
-    "Strategy": ["Low-tier", "High-tier T1", "High-tier T2"],
-    "Customers Targeted": [1000, 156, 433],
-    "Budget Used": [1000, 156, 433],
-    "Expected Incremental Purchases": [20.515836, 2.886234, 17.787456],
-    "Purchases per Budget Unit": [0.020516, 0.018501, 0.041080]
-})
-
-# -----------------------------
-# REUSABLE UI HELPERS
-# -----------------------------
-def hero(title, subtitle, eyebrow="ECONOCAUSAL ANALYTICS"):
-    st.markdown(f"""
-    <div class='hero'>
-      <div class='eyebrow'>{eyebrow}</div>
-      <div class='hero-title'>{title}</div>
-      <p class='hero-copy'>{subtitle}</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-
-def metric_card(label, value, note=""):
-    st.markdown(f"""
-    <div class='metric-card'>
-      <div class='metric-label'>{label}</div>
-      <div class='metric-value'>{value}</div>
-      <div class='metric-note'>{note}</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-
-def section_title(title, description=None):
-    st.markdown(f"<div class='section-kicker'>{title}</div>", unsafe_allow_html=True)
-    if description:
-        st.caption(description)
-
-# -----------------------------
-# PAGE: OVERVIEW
-# -----------------------------
-if section == "Overview":
-    hero(
-        "Understand the impact.\nOptimize every offer.",
-        "An integrated research dashboard for coupon effectiveness, causal impact, customer uplift and marketing budget decisions.",
-        "COUPON IMPACT · RESEARCH WORKSPACE"
+    uploaded = st.sidebar.file_uploader(
+        "Upload CSV or Excel",
+        type=["csv", "xlsx"]
     )
 
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        metric_card("DATASET RECORDS", "12,959", "Coupon Impact research dataset")
-    with c2:
-        metric_card("DATASET FEATURES", "8", "Original project overview")
-    with c3:
-        metric_card("CORE MODULES", "3", "DML · Uplift · Budget")
+    try:
+        business_df = load_data(uploaded)
+    except Exception as exc:
+        business_df = None
+        st.sidebar.error(f"Could not read file: {exc}")
 
-    section_title("Research overview", "Move from customer data to evidence-based coupon decisions.")
-    left, right = st.columns([1.15, 0.85], gap="large")
-    with left:
-        st.markdown("<div class='info-card'><div class='info-title'>Project objectives</div><div class='info-copy'>Analyse customer purchasing behaviour, estimate coupon treatment effects, identify customers with positive predicted uplift, compare coupon strategies and improve marketing budget allocation.</div></div>", unsafe_allow_html=True)
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown("<div class='info-card'><div class='info-title'>Technology stack</div><div class='info-copy'>Python · Pandas · NumPy · Matplotlib · Scikit-learn · DoubleML · Streamlit · GitHub</div></div>", unsafe_allow_html=True)
-    with right:
-        st.markdown("<div class='info-card'><div class='info-title'>Project workflow</div>", unsafe_allow_html=True)
-        workflow = [
-            "Data Cleaning and Exploratory Data Analysis",
-            "Treatment and Control Group Analysis",
+    page = st.sidebar.radio(
+        "Analytics sections",
+        [
+            "Overview",
+            "Executive Summary",
+            "Data Cleaning and EDA",
+            "Dataset Configuration",
             "Double Machine Learning",
-            "Uplift Modelling using T-Learner",
-            "Customer Segmentation",
+            "Uplift Modelling",
             "Budget Optimization",
             "Business Recommendations"
         ]
-        for i, step in enumerate(workflow, 1):
-            st.markdown(f"<div class='step'><div class='step-num'>{i:02d}</div><div class='step-text'>{step}</div></div>", unsafe_allow_html=True)
-        st.markdown("</div>", unsafe_allow_html=True)
+    )
 
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown("<div class='callout'>This dashboard displays the saved Coupon Impact research results. It does not train the original research models. Upload the cleaned CSV from the sidebar to explore its dataset.</div>", unsafe_allow_html=True)
 
-# -----------------------------
-# PAGE: DATA CLEANING AND EDA
-# -----------------------------
-elif section == "Data Cleaning and EDA":
-    hero("Data quality, at a glance.", "Explore the cleaned Coupon Impact dataset, inspect missing values and understand customer group patterns.", "DATA EXPLORATION")
-    if df is None:
-        st.info("Upload Coupon_Impact_Clean.csv using the sidebar to view dataset analysis.")
-    else:
+# ---------------- PAGE HERO ----------------
+
+st.markdown(
+    f"""
+    <div class="ec-hero">
+        <div class="ec-kicker">ECONOCAUSAL / {mode.upper()}</div>
+        <div class="ec-hero-title">{page}</div>
+        <p class="ec-hero-copy">
+            Understand what drives customer behaviour.
+            Measure treatment effects, discover incremental uplift,
+            and make smarter campaign investment decisions.
+        </p>
+        <span class="ec-pill">
+            ● &nbsp;
+            {"COUPON IMPACT RESEARCH" if mode == "Research Dashboard" else "FLEXIBLE DATA WORKSPACE"}
+        </span>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
+
+
+# ================= RESEARCH DASHBOARD =================
+
+if mode == "Research Dashboard":
+
+    if page == "Overview":
+
+        st.header("Coupon Impact Research Overview")
+
         c1, c2, c3 = st.columns(3)
-        with c1: metric_card("ROWS", f"{df.shape[0]:,}", "Loaded dataset")
-        with c2: metric_card("COLUMNS", str(df.shape[1]), "Available features")
-        with c3: metric_card("DUPLICATE ROWS", f"{int(df.duplicated().sum()):,}", "Exact duplicate records")
 
-        section_title("Dataset preview")
-        st.dataframe(df.head(10), use_container_width=True, hide_index=True)
+        c1.metric("Dataset Records", "12,959")
+        c2.metric("Dataset Features", "8")
+        c3.metric("Research Modules", "3")
 
-        section_title("Data quality report")
-        quality = pd.DataFrame({
-            "Column": df.columns,
-            "Missing Values": df.isnull().sum().values,
-            "Data Type": df.dtypes.astype(str).values
-        })
-        q1, q2 = st.columns(2)
-        with q1: metric_card("MISSING VALUES", f"{int(df.isnull().sum().sum()):,}", "Across all columns")
-        with q2: metric_card("COMPLETE CELLS", f"{int(df.size - df.isnull().sum().sum()):,}", "Non-missing values")
-        st.dataframe(quality, use_container_width=True, hide_index=True)
+        st.markdown("### Project objectives")
 
-        if "group" in df.columns:
-            section_title("Customer group analysis")
-            g1, g2 = st.columns(2)
-            with g1:
-                st.markdown("**Experimental group distribution**")
-                st.bar_chart(df["group"].value_counts())
-            with g2:
-                if "purchase" in df.columns:
-                    st.markdown("**Purchase rate by group**")
-                    purchase_rates = df.groupby("group")["purchase"].mean().mul(100).rename("Purchase Rate (%)")
-                    st.bar_chart(purchase_rates)
-                    st.dataframe(purchase_rates.reset_index(), use_container_width=True, hide_index=True)
-            if "amount" in df.columns:
-                st.markdown("**Average purchase amount by group**")
-                average_amount = df.groupby("group")["amount"].mean().rename("Average Amount")
-                st.bar_chart(average_amount)
+        st.write("""
+        - Analyse customer purchasing behaviour.
+        - Estimate coupon treatment effects using Double Machine Learning.
+        - Identify customers with positive predicted uplift.
+        - Compare coupon strategies.
+        - Explore marketing budget allocation.
+        """)
 
-# -----------------------------
-# PAGE: DOUBLE MACHINE LEARNING
-# -----------------------------
-elif section == "Double Machine Learning":
-    hero("Measure the treatment effect.", "Review the saved Average Treatment Effect estimates and their statistical significance across coupon comparisons.", "CAUSAL IMPACT · DOUBLE MACHINE LEARNING")
-    st.markdown("Double Machine Learning estimates the average effect of coupon treatment on customer purchasing behaviour while accounting for relevant observed factors.")
+        st.markdown("### Project workflow")
 
-    section_title("Model configuration")
-    config = pd.DataFrame({
-        "Parameter": ["Estimator", "Outcome Model", "Treatment Model", "Cross Validation", "Outcome Variables"],
-        "Value": ["DoubleMLPLR", "Random Forest Regressor", "Logistic Regression", "5 Folds", "Purchase and Amount"]
-    })
-    st.dataframe(config, use_container_width=True, hide_index=True)
+        workflow = [
+            "Data cleaning and EDA",
+            "Treatment and control group analysis",
+            "Double Machine Learning",
+            "Uplift modelling using T-Learner",
+            "Customer segmentation",
+            "Budget optimization",
+            "Business recommendations"
+        ]
 
-    section_title("Average treatment effect results")
-    m1, m2, m3 = st.columns(3)
-    with m1: metric_card("COMPARISONS", "4", "Saved DML estimates")
-    with m2: metric_card("SIGNIFICANT RESULTS", "0", "At p < 0.05")
-    with m3: metric_card("LOWEST P-VALUE", "0.2279", "Low-tier · Purchase")
-    st.dataframe(dml_results.style.format({"ATE": "{:.4f}", "P-value": "{:.4f}"}), use_container_width=True, hide_index=True)
+        for i, item in enumerate(workflow, 1):
+            st.markdown(f"**{i}.** {item}")
 
-    section_title("ATE comparison")
-    st.bar_chart(dml_results.set_index("Comparison")["ATE"])
-    st.markdown("**Statistical interpretation**")
-    st.write("All four comparisons have p-values greater than 0.05. Therefore, these analyses did not find statistically significant evidence of a coupon treatment effect. This does not prove that coupons have no effect.")
-    st.warning("Causal interpretation depends on valid treatment assignment, appropriate pre-treatment controls and model assumptions.")
+        st.info(
+            "This page presents the saved Coupon Impact research results. "
+            "Upload the cleaned coupon CSV in the sidebar to explore its rows and columns."
+        )
 
-# -----------------------------
-# PAGE: UPLIFT MODELLING
-# -----------------------------
-elif section == "Uplift Modelling":
-    hero("Find customers worth targeting.", "Compare predicted uplift across coupon strategies and inspect the saved customer segmentation results.", "CUSTOMER INTELLIGENCE · UPLIFT MODELLING")
-    st.markdown("Uplift modelling estimates how customer purchase probability may change when a customer receives a coupon.")
+        st.caption(
+            "Technology: Python, Pandas, NumPy, Scikit-learn, "
+            "DoubleML research workflow and Streamlit."
+        )
 
-    section_title("How the T-Learner works")
-    a, b = st.columns(2)
-    with a:
-        st.markdown("<div class='info-card'><div class='info-title'>01 · Control model</div><div class='info-copy'>Predicts purchase probability without treatment.</div></div>", unsafe_allow_html=True)
-    with b:
-        st.markdown("<div class='info-card'><div class='info-title'>02 · Treatment model</div><div class='info-copy'>Predicts purchase probability with treatment.</div></div>", unsafe_allow_html=True)
-    st.markdown("<div class='callout'>Uplift Score = Treatment Prediction − Control Prediction</div>", unsafe_allow_html=True)
+    elif page == "Data Cleaning and EDA":
 
-    section_title("Strategy comparison")
-    st.dataframe(uplift_results.style.format({"Average Predicted Uplift": "{:.5f}"}), use_container_width=True, hide_index=True)
-    st.bar_chart(uplift_results.set_index("Strategy")["Average Predicted Uplift"])
+        st.header("Data Cleaning and Exploratory Data Analysis")
 
-    section_title("Customer segmentation")
-    st.dataframe(segmentation, use_container_width=True, hide_index=True)
-    segment_chart = segmentation.pivot(index="Strategy", columns="Segment", values="Customers")
-    st.bar_chart(segment_chart)
-    st.info("Uplift scores are model predictions. Their causal interpretation requires validation.")
+        if research_df is None:
 
-# -----------------------------
-# PAGE: BUDGET OPTIMIZATION
-# -----------------------------
-elif section == "Budget Optimization":
-    hero("Allocate budget with intent.", "Compare the saved coupon strategies by estimated incremental purchases and budget efficiency.", "MARKETING STRATEGY · BUDGET OPTIMIZATION")
-    st.markdown("This module ranks customers using predicted uplift scores and compares coupon strategies under an illustrative budget scenario.")
+            st.warning(
+                "Upload Coupon_Impact_Clean.csv in the sidebar to view the dataset."
+            )
 
-    section_title("Budget allocation results")
-    st.dataframe(budget_results.style.format({"Expected Incremental Purchases": "{:.2f}", "Purchases per Budget Unit": "{:.5f}"}), use_container_width=True, hide_index=True)
+        else:
 
-    best_strategy = budget_results.loc[budget_results["Purchases per Budget Unit"].idxmax()]
-    highest_volume = budget_results.loc[budget_results["Expected Incremental Purchases"].idxmax()]
-    x, y = st.columns(2)
-    with x:
-        metric_card("HIGHEST ESTIMATED EFFICIENCY", best_strategy["Strategy"], f"{best_strategy['Purchases per Budget Unit']:.5f} purchases per budget unit")
-    with y:
-        metric_card("HIGHEST ESTIMATED VOLUME", highest_volume["Strategy"], f"{highest_volume['Expected Incremental Purchases']:.2f} expected incremental purchases")
+            a, b = st.columns(2)
 
-    section_title("Expected incremental purchases")
-    st.bar_chart(budget_results.set_index("Strategy")["Expected Incremental Purchases"])
-    section_title("Estimated budget efficiency")
-    st.bar_chart(budget_results.set_index("Strategy")["Purchases per Budget Unit"])
-    st.warning("Budget and coupon costs are illustrative assumptions. These results are not actual profit or savings estimates.")
+            a.metric("Rows", f"{len(research_df):,}")
+            b.metric("Columns", len(research_df.columns))
 
-# -----------------------------
-# PAGE: BUSINESS RECOMMENDATIONS
-# -----------------------------
-elif section == "Business Recommendations":
-    hero("Turn analysis into action.", "A concise view of the findings, practical recommendations and limitations of the current coupon analysis.", "DECISION SUPPORT")
+            st.subheader("Dataset preview")
 
-    section_title("Key findings")
-    findings = [
-        "High-tier T2 has the highest average predicted uplift.",
-        "High-tier T2 has the highest estimated purchases per budget unit in the illustrative scenario.",
-        "Low-tier has the highest estimated incremental purchase volume in the budget scenario.",
-        "DML results did not show statistically significant treatment effects in the four comparisons."
-    ]
-    for i, item in enumerate(findings, 1):
-        st.markdown(f"<div class='step'><div class='step-num'>{i:02d}</div><div class='step-text'>{item}</div></div>", unsafe_allow_html=True)
+            st.dataframe(
+                research_df.head(20),
+                use_container_width=True
+            )
 
-    section_title("Recommendations")
-    recommendations = [
-        "Consider uplift-based customer targeting.",
-        "Prioritize customers with positive predicted uplift.",
-        "Compare coupon strategies using actual coupon costs.",
-        "Validate model predictions through controlled experiments.",
-        "Reassess budget allocation using real business outcomes."
-    ]
-    for item in recommendations:
-        st.markdown(f"- {item}")
+            st.subheader("Data quality")
 
-    section_title("Project limitations")
-    limitations = [
-        "Treatment assignment and experiment design need verification.",
-        "Pre-treatment timing of predictor variables must be confirmed.",
-        "Uplift predictions are not automatically causal effects.",
-        "Budget values and coupon costs are illustrative.",
-        "Further validation is required before business deployment."
-    ]
-    for item in limitations:
-        st.markdown(f"- {item}")
-    st.success("EconoCausal combines data analysis, causal machine learning and uplift modelling to support informed coupon allocation.")
+            quality = pd.DataFrame({
+                "Column": research_df.columns,
+                "Missing values": research_df.isna().sum().values,
+                "Data type": research_df.dtypes.astype(str).values
+            })
 
-# -----------------------------
-# FOOTER
-# -----------------------------
-st.markdown("<div class='footer'>ECONOCAUSAL · DYNAMIC PRICING & COUPON EFFECTIVENESS ANALYSIS<br>Research dashboard · Saved model results and budget scenarios are subject to validation.</div>", unsafe_allow_html=True)
+            st.dataframe(
+                quality,
+                use_container_width=True,
+                hide_index=True
+            )
+
+            a, b = st.columns(2)
+
+            a.metric(
+                "Total missing values",
+                int(research_df.isna().sum().sum())
+            )
+
+            b.metric(
+                "Duplicate rows",
+                int(research_df.duplicated().sum())
+            )
+
+            if "group" in research_df.columns:
+
+                st.subheader("Experimental group distribution")
+
+                st.bar_chart(
+                    research_df["group"].value_counts()
+                )
+
+                if "purchase" in research_df.columns:
+
+                    st.subheader("Purchase rate by group")
+
+                    rates = (
+                        research_df.groupby("group")["purchase"]
+                        .mean()
+                        .mul(100)
+                        .rename("Purchase rate (%)")
+                    )
+
+                    st.bar_chart(rates)
+
+                    st.dataframe(
+                        rates.reset_index(),
+                        use_container_width=True,
+                        hide_index=True
+                    )
+
+                if "amount" in research_df.columns:
+
+                    st.subheader("Average purchase amount by group")
+
+                    st.bar_chart(
+                        research_df.groupby("group")["amount"]
+                        .mean()
+                        .rename("Average amount")
+                    )
+
+    elif page == "Double Machine Learning":
+
+        st.header("Double Machine Learning — Saved Coupon Results")
+
+        st.write(
+            "Double Machine Learning estimates coupon treatment effects "
+            "while accounting for observed customer characteristics."
+        )
