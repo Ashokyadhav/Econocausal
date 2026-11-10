@@ -11,13 +11,13 @@ from sklearn.model_selection import train_test_split
 # --------------------------------------------------
 
 st.set_page_config(
-    page_title="EconoCausal - Multi Dataset",
+    page_title="EconoCausal | Causal Research & Business Analytics",
     page_icon="📊",
     layout="wide"
 )
 
 st.title("📊 EconoCausal")
-st.subheader("Multi-Dataset Causal Analysis Platform")
+st.subheader("Causal Research & Business Analytics Platform")
 
 st.write(
     "Upload compatible datasets, explore the data, "
@@ -34,6 +34,7 @@ st.sidebar.title("Project Navigation")
 section = st.sidebar.radio(
     "Select Section",
     [
+        "Research Dashboard",
         "Overview",
         "Executive Summary",
         "Data Cleaning and EDA",
@@ -151,12 +152,117 @@ def get_analysis_data():
 
 
 # --------------------------------------------------
-# OVERVIEW
+# RESEARCH DASHBOARD - WCER2 RESEARCH VIEW
 # --------------------------------------------------
 
-if section == "Overview":
+if section == "Research Dashboard":
 
-    st.header("Project Overview")
+    st.header("WCER2 Research Dashboard")
+
+    st.write(
+        "Research view for the EconoCausal dynamic-pricing study. "
+        "This page is separate from the user-uploaded Business Analytics workflow."
+    )
+
+    c1, c2, c3 = st.columns(3)
+
+    c1.metric("Original WCER2 records", "4,751,202")
+    c2.metric("Consecutive-week observations", "4,569,690")
+    c3.metric("Research outcome", "MOVE")
+
+    st.info(
+        "Research variables: PRICE is the price measure and MOVE is the "
+        "sales movement measure. The research uses consecutive-week changes "
+        "and Double Machine Learning."
+    )
+
+    st.subheader("Saved research results")
+
+    st.caption(
+        "Upload your saved cluster-aware comparison CSV to display the "
+        "latest model estimates. This page does not retrain your research models."
+    )
+
+    research_file = st.file_uploader(
+        "Upload cluster_aware_model_comparison.csv",
+        type=["csv"],
+        key="research_comparison_upload"
+    )
+
+    if research_file is not None:
+        try:
+            research_results = pd.read_csv(research_file)
+
+            st.dataframe(
+                research_results,
+                use_container_width=True
+            )
+
+            numeric_cols = research_results.select_dtypes(
+                include=np.number
+            ).columns.tolist()
+
+            preferred = [
+                c for c in numeric_cols
+                if any(term in c.lower() for term in
+                       ["coef", "estimate", "ate", "effect"])
+            ]
+
+            if numeric_cols:
+                chart_col = (
+                    preferred[0] if preferred else numeric_cols[0]
+                )
+
+                label_cols = [
+                    c for c in research_results.columns
+                    if c != chart_col
+                    and not pd.api.types.is_numeric_dtype(
+                        research_results[c]
+                    )
+                ]
+
+                if label_cols:
+                    st.subheader("Model estimate comparison")
+
+                    st.bar_chart(
+                        research_results.set_index(
+                            label_cols[0]
+                        )[[chart_col]]
+                    )
+
+        except Exception as e:
+            st.error(f"Could not read the comparison file: {e}")
+
+    else:
+        st.warning(
+            "Saved model estimates are not loaded. Only established dataset "
+            "facts are shown; missing research estimates are not invented."
+        )
+
+    st.subheader("Research workflow")
+
+    st.markdown(
+        """
+        1. Start with the cleaned WCER2 dataset.
+        2. Create consecutive-week changes.
+        3. Define price change as the treatment and sales movement as the outcome.
+        4. Estimate the treatment effect using Double Machine Learning.
+        5. Compare baseline and filtered samples.
+        6. Validate inference using the cluster-aware analysis.
+        """
+    )
+
+    st.subheader("Research interpretation")
+
+    st.write(
+        "A negative price-effect estimate indicates a negative relationship "
+        "between price changes and sales movement in the estimated model. "
+        "Causal interpretation depends on the research design, controls, "
+        "sample definition and inference assumptions."
+    )
+
+elif section == "Overview":
+        st.header("Business Analytics Overview")
 
     col1, col2, col3 = st.columns(3)
 
@@ -207,15 +313,16 @@ if section == "Overview":
 elif section == "Executive Summary":
 
     st.header("Executive Summary")
+
     st.write(
         "A single view of the uploaded dataset and the latest results "
         "from DML, uplift modelling and budget optimization."
     )
 
-    # Dataset-level metrics
     total_customers = len(df) if df is not None else 0
 
     treatment_groups = "Not configured"
+
     if (
         df is not None
         and "treatment_column" in st.session_state
@@ -230,59 +337,92 @@ elif section == "Executive Summary":
     budget_summary = st.session_state.get("budget_summary")
 
     row1 = st.columns(2)
+
     row1[0].metric(
         "Total Customers / Records",
         f"{total_customers:,}" if df is not None else "Upload dataset"
     )
+
     row1[1].metric("Treatment Groups", treatment_groups)
 
     row2 = st.columns(3)
+
     row2[0].metric(
         "Estimated Treatment Effect (ATE)",
         f"{dml_summary['ate']:.5f}" if dml_summary else "Run DML"
     )
+
     row2[1].metric(
         "Positive Uplift",
-        f"{uplift_summary['positive_count']:,}" if uplift_summary else "Run Uplift"
+        f"{uplift_summary['positive_count']:,}"
+        if uplift_summary else "Run Uplift"
     )
+
     row2[2].metric(
         "Budget Efficiency",
-        f"{budget_summary['efficiency']:.5f}" if budget_summary else "Run Budget Optimization"
+        f"{budget_summary['efficiency']:.5f}"
+        if budget_summary else "Run Budget Optimization"
     )
 
     st.divider()
+
     st.subheader("Latest Analysis Details")
 
     if dml_summary:
+
         st.markdown(
             f"- **DML p-value:** {dml_summary['p_value']:.5f}\n"
             f"- **95% confidence interval:** "
-            f"{dml_summary['ci_lower']:.5f} to {dml_summary['ci_upper']:.5f}"
+            f"{dml_summary['ci_lower']:.5f} to "
+            f"{dml_summary['ci_upper']:.5f}"
         )
+
         if dml_summary["p_value"] < 0.05:
-            st.success("The latest DML estimate is statistically significant at the 5% level.")
+            st.success(
+                "The latest DML estimate is statistically significant "
+                "at the 5% level."
+            )
         else:
-            st.info("The latest DML estimate is not statistically significant at the 5% level.")
+            st.info(
+                "The latest DML estimate is not statistically significant "
+                "at the 5% level."
+            )
+
     else:
-        st.caption("DML results will appear here after you run Double Machine Learning.")
+        st.caption(
+            "DML results will appear here after you run "
+            "Double Machine Learning."
+        )
 
     if uplift_summary:
+
         st.markdown(
-            f"- **Average predicted uplift:** {uplift_summary['average_uplift']:.5f}\n"
-            f"- **Negative uplift observations:** {uplift_summary['negative_count']:,}"
+            f"- **Average predicted uplift:** "
+            f"{uplift_summary['average_uplift']:.5f}\n"
+            f"- **Negative uplift observations:** "
+            f"{uplift_summary['negative_count']:,}"
         )
+
     else:
-        st.caption("Uplift results will appear here after you run Uplift Modelling.")
+        st.caption(
+            "Uplift results will appear here after you run Uplift Modelling."
+        )
 
     if budget_summary:
+
         st.markdown(
-            f"- **Customers targeted:** {budget_summary['customers_targeted']:,}\n"
-            f"- **Budget used:** {budget_summary['budget_used']:.2f}\n"
+            f"- **Customers targeted:** "
+            f"{budget_summary['customers_targeted']:,}\n"
+            f"- **Budget used:** "
+            f"{budget_summary['budget_used']:.2f}\n"
             f"- **Expected incremental purchases (model estimate):** "
             f"{budget_summary['expected_incremental_purchases']:.3f}"
         )
+
     else:
-        st.caption("Budget results will appear here after you run Budget Optimization.")
+        st.caption(
+            "Budget results will appear here after you run Budget Optimization."
+        )
 
     st.warning(
         "These figures summarize the latest analyses in this app session. "
@@ -303,9 +443,11 @@ elif section == "Data Cleaning and EDA":
         st.warning("Please upload a CSV or Excel dataset.")
 
     else:
+
         st.subheader("Dataset Preview")
 
         col1, col2 = st.columns(2)
+
         col1.metric("Rows", f"{df.shape[0]:,}")
         col2.metric("Columns", df.shape[1])
 
@@ -339,6 +481,7 @@ elif section == "Data Cleaning and EDA":
         )
 
         st.subheader("Numerical Summary")
+
         st.dataframe(
             df.describe(include="all").T,
             use_container_width=True
@@ -349,6 +492,7 @@ elif section == "Data Cleaning and EDA":
         ).columns.tolist()
 
         if numeric_columns:
+
             selected_column = st.selectbox(
                 "Choose a numerical column",
                 numeric_columns
@@ -365,6 +509,7 @@ elif section == "Data Cleaning and EDA":
         ).columns.tolist()
 
         if categorical_columns:
+
             selected_category = st.selectbox(
                 "Choose a categorical column",
                 categorical_columns
@@ -387,6 +532,7 @@ elif section == "Dataset Configuration":
         st.warning("Upload a dataset first.")
 
     else:
+
         columns = df.columns.tolist()
 
         treatment_column = st.selectbox(
@@ -462,9 +608,7 @@ elif section == "Dataset Configuration":
 
         else:
             st.error("Treatment column must contain at least two values.")
-
-
-# --------------------------------------------------
+            # --------------------------------------------------
 # DOUBLE MACHINE LEARNING
 # --------------------------------------------------
 
@@ -530,6 +674,7 @@ elif section == "Double Machine Learning":
                 })
 
                 lower, upper = model.confint().iloc[0].tolist()
+
                 st.session_state["dml_summary"] = {
                     "ate": float(model.coef[0]),
                     "standard_error": float(model.se[0]),
@@ -655,6 +800,7 @@ elif section == "Uplift Modelling":
                     })
 
                     st.session_state["uplift_results"] = uplift_results
+
                     st.session_state["uplift_summary"] = {
                         "average_uplift": float(np.mean(uplift)),
                         "positive_count": int((uplift > 0).sum()),
@@ -767,7 +913,9 @@ elif section == "Budget Optimization":
             st.session_state["budget_summary"] = {
                 "customers_targeted": int(customers_targeted),
                 "budget_used": float(budget_used),
-                "expected_incremental_purchases": float(expected_incremental_purchases),
+                "expected_incremental_purchases": float(
+                    expected_incremental_purchases
+                ),
                 "efficiency": float(efficiency)
             }
 
@@ -776,6 +924,7 @@ elif section == "Budget Optimization":
             col1, col2, col3 = st.columns(3)
 
             col1.metric("Customers Targeted", customers_targeted)
+
             col2.metric("Budget Used", f"{budget_used:.2f}")
 
             col3.metric(
@@ -843,7 +992,7 @@ elif section == "Business Recommendations":
 st.divider()
 
 st.caption(
-    "EconoCausal | Multi-Dataset Causal Analysis Platform"
+    "EconoCausal | Causal Research & Business Analytics Platform"
 )
 
 st.caption(
