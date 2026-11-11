@@ -615,12 +615,9 @@ def run_uplift(data, X):
 # --------------------------------------------------
 # BUDGET OPTIMIZATION
 # --------------------------------------------------
-
 elif section == "Budget Optimization":
-
     st.header("Budget Optimization")
-
-    st.write(
+     st.write(
         "Allocate a limited budget to observations with "
         "the highest positive predicted uplift."
     )
