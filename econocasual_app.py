@@ -544,8 +544,9 @@ if mode == "Research Dashboard":
         st.sidebar.error(f"Could not read file: {exc}")
 
     pages = [
-        "Overview", "Data Cleaning and EDA", "Double Machine Learning",
-        "Uplift Modelling", "Budget Optimization", "Business Recommendations"
+        "Overview", "Data Cleaning and EDA", "Dataset Configuration",
+        "Double Machine Learning", "Uplift Modelling",
+        "Budget Optimization", "Business Recommendations"
     ]
     page = st.sidebar.radio("Research sections", pages, key="research_page")
 
@@ -632,6 +633,15 @@ if mode == "Research Dashboard":
                 if "amount" in research_df.columns:
                     st.subheader("Average amount by group")
                     st.bar_chart(research_df.groupby("group")["amount"].mean())
+
+    elif page == "Dataset Configuration":
+        st.header("Coupon Dataset Configuration")
+        st.write(
+            "Configure treatment, outcome and pre-treatment control variables "
+            "for an additional analysis of the uploaded Coupon Impact dataset. "
+            "The saved coupon research results shown in the other sections remain unchanged."
+        )
+        render_analysis_pages(research_df, "research")
 
     elif page == "Double Machine Learning":
         st.header("Double Machine Learning — Saved Coupon Results")
