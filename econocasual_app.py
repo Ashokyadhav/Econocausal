@@ -574,133 +574,43 @@ elif section == "Double Machine Learning":
 # UPLIFT MODELLING
 # --------------------------------------------------
 
-elif section == "Uplift Modelling":
+def run_uplift(data, X):
 
-    st.header("Uplift Modelling")
+    t = data["_t"].to_numpy()
+    y = data["_y"].to_numpy(dtype=float)
 
-    st.write(
-        "T-Learner compares predicted outcomes under treatment "
-        "and control conditions."
+    if np.bincount(t).min() < 20:
+        raise ValueError(
+            "Each treatment group needs at least 20 observations."
+        )
+
+    control = RandomForestRegressor(
+        n_estimators=150,
+        min_samples_leaf=5,
+        random_state=42,
+        n_jobs=-1
     )
 
-    if st.button("Run Uplift Analysis"):
+    treated = RandomForestRegressor(
+        n_estimators=150,
+        min_samples_leaf=5,
+        random_state=43,
+        n_jobs=-1
+    )
 
-        prepared = get_analysis_data()
+    control.fit(X[t == 0], y[t == 0])
+    treated.fit(X[t == 1], y[t == 1])
 
-        if prepared is not None:
+    y0 = control.predict(X)
+    y1 = treated.predict(X)
 
-            data, X = prepared
+    uplift = y1 - y0
 
-            y = data["__outcome__"]
-            d = data["__treatment__"]
-
-            if not y.isin([0, 1]).all():
-
-                st.error(
-                    "This T-Learner implementation requires a binary "
-                    "outcome containing only 0 and 1."
-                )
-
-            elif (
-                y[d == 0].nunique() < 2
-                or y[d == 1].nunique() < 2
-            ):
-
-                st.error(
-                    "Both treatment and control groups must contain "
-                    "both outcome classes (0 and 1)."
-                )
-
-            else:
-
-                try:
-                    X_train, X_test, y_train, y_test, d_train, d_test = (
-                        train_test_split(
-                            X,
-                            y,
-                            d,
-                            test_size=0.30,
-                            random_state=42,
-                            stratify=d
-                        )
-                    )
-
-                    control_model = LogisticRegression(max_iter=1000)
-                    treatment_model = LogisticRegression(max_iter=1000)
-
-                    control_model.fit(
-                        X_train[d_train == 0],
-                        y_train[d_train == 0]
-                    )
-
-                    treatment_model.fit(
-                        X_train[d_train == 1],
-                        y_train[d_train == 1]
-                    )
-
-                    p_control = control_model.predict_proba(
-                        X_test
-                    )[:, 1]
-
-                    p_treatment = treatment_model.predict_proba(
-                        X_test
-                    )[:, 1]
-
-                    uplift = p_treatment - p_control
-
-                    uplift_results = pd.DataFrame({
-                        "Predicted Control Probability": p_control,
-                        "Predicted Treatment Probability": p_treatment,
-                        "Predicted Uplift": uplift
-                    })
-
-                    st.session_state["uplift_results"] = uplift_results
-                    st.session_state["uplift_summary"] = {
-                        "average_uplift": float(np.mean(uplift)),
-                        "positive_count": int((uplift > 0).sum()),
-                        "negative_count": int((uplift < 0).sum())
-                    }
-
-                    st.subheader("Uplift Results")
-
-                    col1, col2, col3 = st.columns(3)
-
-                    col1.metric(
-                        "Average Predicted Uplift",
-                        f"{np.mean(uplift):.5f}"
-                    )
-
-                    col2.metric(
-                        "Positive Uplift",
-                        int((uplift > 0).sum())
-                    )
-
-                    col3.metric(
-                        "Negative Uplift",
-                        int((uplift < 0).sum())
-                    )
-
-                    st.dataframe(
-                        uplift_results.head(20),
-                        use_container_width=True
-                    )
-
-                    st.subheader("Predicted Uplift Distribution")
-
-                    st.bar_chart(
-                        uplift_results["Predicted Uplift"]
-                        .value_counts(bins=20)
-                        .sort_index()
-                    )
-
-                    st.info(
-                        "These are model predictions, not automatically "
-                        "validated individual causal effects."
-                    )
-
-                except Exception as e:
-                    st.error(f"Uplift modelling failed: {e}")
-
+    return pd.DataFrame({
+        "Control Prediction": y0,
+        "Treatment Prediction": y1,
+        "Predicted Uplift": uplift
+    })
 
 # --------------------------------------------------
 # BUDGET OPTIMIZATION
