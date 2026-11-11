@@ -1,5 +1,13 @@
-import { useEffect, useState } from 'react'
+﻿import { useEffect, useState } from 'react'
+import { LayoutDashboard, Package, ChartNoAxesCombined, BrainCircuit, IndianRupee, Boxes, TrendingUp } from 'lucide-react'
 import './App.css'
+
+import {
+  uploadDataset,
+  trainModel,
+  getResults,
+  exportResults,
+} from './api/analytics'
 
 import {
   getProducts,
@@ -89,6 +97,16 @@ function App() {
   const [apiAvailable, setApiAvailable] = useState(false)
   const [isSavingProduct, setIsSavingProduct] = useState(false)
 
+  // DML Model States
+  const [selectedFile, setSelectedFile] = useState(null)
+  const [datasetInfo, setDatasetInfo] = useState(null)
+  const [isUploading, setIsUploading] = useState(false)
+  const [isTraining, setIsTraining] = useState(false)
+  const [dmlResults, setDmlResults] = useState(null)
+  const [dmlError, setDmlError] = useState('')
+  const [dmlMessage, setDmlMessage] = useState('')
+  const [trainingCompleted, setTrainingCompleted] = useState(false)
+
   useEffect(() => {
     let cancelled = false
 
@@ -115,6 +133,72 @@ function App() {
     loadProducts()
     return () => { cancelled = true }
   }, [])
+  // DML Model Handlers
+  const handleUpload = async () => {
+    if (!selectedFile) {
+      setDmlError('Please select a CSV file first.')
+      return
+    }
+
+    setIsUploading(true)
+    setDmlError('')
+    setDmlMessage('')
+    setDmlResults(null)
+    setTrainingCompleted(false)
+
+    try {
+      const response = await uploadDataset(selectedFile)
+      setDatasetInfo(response)
+      setDmlMessage('Dataset uploaded successfully!')
+    } catch (error) {
+      setDmlError(error.message)
+    } finally {
+      setIsUploading(false)
+    }
+  }
+
+  const handleTrain = async () => {
+    if (!datasetInfo?.dataset_id) {
+      setDmlError('Please upload a dataset first.')
+      return
+    }
+
+    setIsTraining(true)
+    setDmlError('')
+    setDmlMessage('Training model...')
+
+    try {
+      await trainModel(datasetInfo.dataset_id)
+      const results = await getResults(datasetInfo.dataset_id)
+      setDmlResults(results)
+      setTrainingCompleted(true)
+      setDmlMessage('Model trained successfully!')
+    } catch (error) {
+      setDmlError(error.message)
+      setDmlMessage('')
+    } finally {
+      setIsTraining(false)
+    }
+  }
+
+  const handleExport = async () => {
+    if (!datasetInfo?.dataset_id) return
+
+    try {
+      const blob = await exportResults(datasetInfo.dataset_id)
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `dml_predictions_${datasetInfo.dataset_id}.csv`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+    } catch (error) {
+      setDmlError(error.message)
+    }
+  }
+
   const filteredProducts = products.filter((product) =>
     `${product.name} ${product.category}`
       .toLowerCase()
@@ -273,10 +357,10 @@ function App() {
   }
 
   const navItems = [
-    { name: 'Overview', icon: 'â—«' },
-    { name: 'Products', icon: 'â–¦' },
-    { name: 'Pricing Analysis', icon: 'â†—' },
-    { name: 'DML Model', icon: 'â—Ž' },
+    { name: 'Overview', icon: LayoutDashboard },
+    { name: 'Products', icon: Package },
+    { name: 'Pricing Analysis', icon: ChartNoAxesCombined },
+    { name: 'DML Model', icon: BrainCircuit },
   ]
 
   return (
@@ -306,7 +390,7 @@ function App() {
                 setProductMessage('')
               }}
             >
-              <span className="nav-icon">{item.icon}</span>
+              <span className="nav-icon"><item.icon size={18} strokeWidth={1.8} /></span>
               {item.name}
             </button>
           ))}
@@ -330,7 +414,7 @@ function App() {
               <span>Analyst workspace</span>
             </div>
 
-            <span className="profile-menu">â€¢â€¢â€¢</span>
+            <span className="profile-menu">...</span>
           </div>
         </div>
       </aside>
@@ -355,7 +439,7 @@ function App() {
                   setShowNotifications((current) => !current)
                 }
               >
-                â™§
+                &#128276;
               </button>
 
               {showNotifications && (
@@ -395,7 +479,7 @@ function App() {
                   className="primary-button"
                   onClick={exportReport}
                 >
-                  â†“ Export report
+                  Export report
                 </button>
               </section>
 
@@ -404,7 +488,7 @@ function App() {
                   title="Products monitored"
                   value={products.length.toLocaleString('en-IN')}
                   change="Current catalog"
-                  icon="â–¤"
+                  icon={Package}
                   color="purple"
                 />
 
@@ -412,7 +496,7 @@ function App() {
                   title="Average selling price"
                   value={formatCurrency(averagePrice)}
                   change="Sample product data"
-                  icon="â‚¹"
+                  icon={IndianRupee}
                   color="blue"
                 />
 
@@ -420,7 +504,7 @@ function App() {
                   title="Total inventory"
                   value={totalStock.toLocaleString('en-IN')}
                   change="Units in catalog"
-                  icon="â†—"
+                  icon={Boxes}
                   color="green"
                 />
 
@@ -428,7 +512,7 @@ function App() {
                   title="High-demand products"
                   value={highDemandCount}
                   change="Current catalog"
-                  icon="â—Ž"
+                  icon={TrendingUp}
                   color="orange"
                 />
               </section>
@@ -503,7 +587,7 @@ function App() {
                       <p>Double Machine Learning</p>
                     </div>
 
-                    <span className="model-icon">â—Ž</span>
+                    <span className="model-icon">D</span>
                   </div>
 
                   <span className="placeholder-badge">
@@ -538,7 +622,7 @@ function App() {
                     className="text-button"
                     onClick={() => setActivePage('DML Model')}
                   >
-                    Explore model details â†’
+                    Explore model details &gt;
                   </button>
                 </div>
               </section>
@@ -577,7 +661,7 @@ function App() {
                     className="primary-button"
                     onClick={exportReport}
                   >
-                    â†“ Export CSV
+                    Export CSV
                   </button>
                 </div>
               </div>
@@ -631,7 +715,7 @@ function App() {
                     <input
                       type="number"
                       name="price"
-                      placeholder="Price (â‚¹)"
+                      placeholder="Price (Rs.)"
                       min="1"
                       step="1"
                       value={newProduct.price}
@@ -736,9 +820,9 @@ function App() {
                                   updatePrice(product.id, -100)
                                 }
                                 aria-label={`Decrease ${product.name} price`}
-                                title="Decrease price by â‚¹100"
+                                title="Decrease price by Rs.100"
                               >
-                                âˆ’
+                                -
                               </button>
 
                               <button
@@ -747,7 +831,7 @@ function App() {
                                   updatePrice(product.id, 100)
                                 }
                                 aria-label={`Increase ${product.name} price`}
-                                title="Increase price by â‚¹100"
+                                title="Increase price by Rs.100"
                               >
                                 +
                               </button>
@@ -794,7 +878,7 @@ function App() {
                   className="primary-button"
                   onClick={exportReport}
                 >
-                  â†“ Export CSV
+                    Export CSV
                 </button>
               </div>
 
@@ -866,80 +950,229 @@ function App() {
               <div className="page-heading">
                 <div>
                   <p className="eyebrow">CAUSAL INFERENCE</p>
-
                   <h1>Double Machine Learning</h1>
-
                   <p className="page-description">
-                    Understand the model used to estimate causal treatment
-                    effects in pricing.
+                    Upload customer data, train the causal model and analyse treatment effects.
                   </p>
                 </div>
               </div>
 
               <div className="panel dml-intro">
-                <span className="placeholder-badge">
-                  BACKEND NOT CONNECTED
-                </span>
-
-                <h2>What is Double Machine Learning?</h2>
-
+                <span className="placeholder-badge">DML ANALYTICS</span>
+                <h2>Customer Treatment Effect Analysis</h2>
                 <p>
-                  Double Machine Learning (DML) uses machine-learning
-                  models to account for observed factors that affect both
-                  pricing decisions and outcomes. It can help estimate
-                  the causal effect of a price or treatment while
-                  reducing bias from observed confounders, under suitable
-                  assumptions.
+                  Upload a validated customer CSV dataset to estimate the causal
+                  impact of different discount treatments using Double Machine Learning.
                 </p>
               </div>
 
-              <div className="analysis-grid">
-                <div className="panel analysis-card">
-                  <span className="analysis-label">TREATMENT</span>
-
-                  <strong>Price</strong>
-
-                  <p>
-                    The pricing variable whose effect we want to estimate.
-                  </p>
-                </div>
-
-                <div className="panel analysis-card">
-                  <span className="analysis-label">OUTCOME</span>
-
-                  <strong>Demand</strong>
-
-                  <p>
-                    The business outcome the model seeks to explain.
-                  </p>
-                </div>
-
-                <div className="panel analysis-card">
-                  <span className="analysis-label">ESTIMATE</span>
-
-                  <strong>Not available</strong>
-
-                  <p>
-                    Connect the trained model API to display real estimates.
-                  </p>
-                </div>
-              </div>
-
-              <div className="panel model-warning">
-                <strong>Important</strong>
-
-                <p>
-                  No real causal estimate is calculated by this frontend.
-                  Connect the backend model and its confidence intervals
-                  before using results for business decisions.
+              <div className="panel products-panel">
+                <h3>1. Upload Customer Dataset</h3>
+                <p className="page-description">
+                  Select a CSV file containing the required customer features and treatment data.
                 </p>
+
+                <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center', marginTop: '18px' }}>
+                  <input
+                    type="file"
+                    accept=".csv,text/csv"
+                    onChange={(event) => {
+                      setSelectedFile(event.target.files?.[0] || null)
+                      setDmlError('')
+                      setDmlMessage('')
+                    }}
+                  />
+
+                  <button
+                    type="button"
+                    className="primary-button"
+                    onClick={handleUpload}
+                    disabled={!selectedFile || isUploading}
+                  >
+                    {isUploading ? 'Uploading...' : 'Upload Dataset'}
+                  </button>
+                </div>
+
+                {selectedFile && (
+                  <p style={{ marginTop: '12px' }}>
+                    Selected file: <strong>{selectedFile.name}</strong>
+                  </p>
+                )}
+
+                {datasetInfo && (
+                  <div className="analysis-grid" style={{ marginTop: '22px' }}>
+                    <div className="panel analysis-card">
+                      <span className="analysis-label">TOTAL RECORDS</span>
+                      <strong>{datasetInfo.total_records}</strong>
+                    </div>
+                    <div className="panel analysis-card">
+                      <span className="analysis-label">TOTAL COLUMNS</span>
+                      <strong>{datasetInfo.total_columns}</strong>
+                    </div>
+                    <div className="panel analysis-card">
+                      <span className="analysis-label">DATASET STATUS</span>
+                      <strong>Validated</strong>
+                    </div>
+                  </div>
+                )}
               </div>
+
+              {dmlMessage && (
+                <div className="panel" style={{ marginTop: '18px' }}>
+                  <p>{dmlMessage}</p>
+                </div>
+              )}
+
+              {dmlError && (
+                <div className="panel model-warning" style={{ marginTop: '18px' }}>
+                  <strong>Something went wrong</strong>
+                  <p>{dmlError}</p>
+                </div>
+              )}
+
+              <div className="panel products-panel" style={{ marginTop: '22px' }}>
+                <h3>2. Train DML Model</h3>
+                <p>
+                  Train the model on your uploaded dataset to calculate treatment effects.
+                </p>
+
+                <button
+                  type="button"
+                  className="primary-button"
+                  onClick={handleTrain}
+                  disabled={!datasetInfo?.dataset_id || isTraining}
+                  style={{ marginTop: '16px' }}
+                >
+                  {isTraining ? 'Training Model...' : 'Train DML Model'}
+                </button>
+
+                {trainingCompleted && (
+                  <span style={{ marginLeft: '14px' }}>
+                    Training completed successfully.
+                  </span>
+                )}
+              </div>
+
+              {dmlResults && (
+                <>
+                  <div className="page-heading" style={{ marginTop: '30px' }}>
+                    <div>
+                      <p className="eyebrow">MODEL OUTPUT</p>
+                      <h2>DML Results</h2>
+                      <p className="page-description">
+                        Estimates calculated from the uploaded dataset.
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      className="primary-button"
+                      onClick={handleExport}
+                    >
+                      Export Predictions CSV
+                    </button>
+                  </div>
+
+                  <div className="panel products-panel">
+                    <h3>3. Average Treatment Effects</h3>
+
+                    <div className="analysis-grid">
+                      {Object.entries(dmlResults.ate_results || {}).map(([treatment, result]) => (
+                        <div className="panel analysis-card" key={treatment}>
+                          <span className="analysis-label">{treatment}</span>
+                          <strong>{Number(result.ate).toFixed(4)}</strong>
+                          <p>Standard Error: {Number(result.std_error).toFixed(4)}</p>
+                          <p>p-value: {Number(result.p_value).toFixed(4)}</p>
+                          <p>
+                            95% CI: [{Number(result.ci_lower).toFixed(4)}, {Number(result.ci_upper).toFixed(4)}]
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="panel products-panel" style={{ marginTop: '22px' }}>
+                    <h3>4. Model Diagnostics</h3>
+
+                    <div className="recommendation-list">
+                      {Object.entries(dmlResults.diagnostics || {}).map(([name, value]) => (
+                        <div className="recommendation-row" key={name}>
+                          <strong>{name.replaceAll('_', ' ').toUpperCase()}</strong>
+                          <span>
+                            {typeof value === 'number' ? Number(value).toFixed(4) : value}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="panel products-panel" style={{ marginTop: '22px' }}>
+                    <h3>5. Customer Prediction Summary</h3>
+
+                    <div className="analysis-grid">
+                      <div className="panel analysis-card">
+                        <span className="analysis-label">TOTAL CUSTOMERS</span>
+                        <strong>{dmlResults.prediction_summary?.total_customers ?? 0}</strong>
+                      </div>
+
+                      <div className="panel analysis-card">
+                        <span className="analysis-label">AVERAGE UPLIFT - 10</span>
+                        <strong>{Number(dmlResults.prediction_summary?.average_tau_10 ?? 0).toFixed(4)}</strong>
+                      </div>
+
+                      <div className="panel analysis-card">
+                        <span className="analysis-label">AVERAGE UPLIFT - 20</span>
+                        <strong>{Number(dmlResults.prediction_summary?.average_tau_20 ?? 0).toFixed(4)}</strong>
+                      </div>
+                    </div>
+
+                    <h3 style={{ marginTop: '24px' }}>Uplift Quadrants</h3>
+
+                    <div className="recommendation-list">
+                      {Object.entries(dmlResults.prediction_summary?.uplift_quadrants || {}).map(([name, count]) => (
+                        <div className="recommendation-row" key={name}>
+                          <strong>{name}</strong>
+                          <span>{count} customers</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="panel products-panel" style={{ marginTop: '22px' }}>
+                    <h3>6. Feature Coefficients</h3>
+
+                    {Object.entries(dmlResults.feature_coefficients || {}).map(([treatment, features]) => (
+                      <div key={treatment} style={{ marginTop: '18px' }}>
+                        <h4>{treatment}</h4>
+
+                        <div className="recommendation-list">
+                          {Object.entries(features || {}).map(([feature, coefficient]) => (
+                            <div className="recommendation-row" key={feature}>
+                              <strong>{feature.replaceAll('_', ' ')}</strong>
+                              <span>{Number(coefficient).toFixed(4)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="panel model-warning" style={{ marginTop: '22px' }}>
+                    <strong>Important</strong>
+                    <p>
+                      Treatment effect estimates are based on the uploaded data and
+                      depend on the model assumptions and data quality. Statistical
+                      significance and model diagnostics should be considered before
+                      making business decisions.
+                    </p>
+                  </div>
+                </>
+              )}
             </section>
           )}
-
           <footer className="page-footer">
-            <span>EconoCausal Â· Intelligent Pricing</span>
-            <span>Frontend prototype Â· Sample data only</span>
+            <span>EconoCausal - Intelligent Pricing</span>
+            <span>Frontend prototype - Sample data only</span>
           </footer>
         </div>
       </main>
@@ -947,14 +1180,14 @@ function App() {
   )
 }
 
-function MetricCard({ title, value, change, icon, color }) {
+function MetricCard({ title, value, change, icon: Icon, color }) {
   return (
     <div className="metric-card">
       <div className="metric-top">
         <span>{title}</span>
 
         <div className={`metric-icon ${color}`}>
-          {icon}
+          <Icon size={21} strokeWidth={1.8} />
         </div>
       </div>
 
@@ -966,4 +1199,15 @@ function MetricCard({ title, value, change, icon, color }) {
 }
 
 export default App
+
+
+
+
+
+
+
+
+
+
+
 
