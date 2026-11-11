@@ -573,7 +573,6 @@ elif section == "Double Machine Learning":
 # --------------------------------------------------
 # UPLIFT MODELLING
 # --------------------------------------------------
-
 def run_uplift(data, X):
 
     t = data["_t"].to_numpy()
@@ -611,7 +610,6 @@ def run_uplift(data, X):
         "Treatment Prediction": y1,
         "Predicted Uplift": uplift
     })
-
 # --------------------------------------------------
 # BUDGET OPTIMIZATION
 # --------------------------------------------------
