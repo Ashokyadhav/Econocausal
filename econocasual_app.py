@@ -11,25 +11,80 @@ from sklearn.model_selection import train_test_split
 # --------------------------------------------------
 
 st.set_page_config(
-    page_title="EconoCausal - Multi Dataset",
+    page_title="EconoCausal | Causal Intelligence",
     page_icon="📊",
     layout="wide"
 )
 
-st.title("📊 EconoCausal")
-st.subheader("Multi-Dataset Causal Analysis Platform")
+# --------------------------------------------------
+# ENTERPRISE FINTECH UI / UX THEME
+# --------------------------------------------------
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap');
+:root {
+  --ec-bg: #081724; --ec-panel: #102637; --ec-panel2: #132f42;
+  --ec-border: #244456; --ec-text: #edf5f8; --ec-muted: #9bb1bd;
+  --ec-teal: #35d0bd; --ec-blue: #76aaff;
+}
+html, body, [class*="css"] { font-family: 'DM Sans', sans-serif; }
+.stApp { background: radial-gradient(ellipse at 80% -10%, rgba(25,126,139,.20), transparent 38%), var(--ec-bg); color: var(--ec-text); }
+[data-testid="stHeader"] { background: rgba(8,23,36,.82); }
+[data-testid="stSidebar"] { background: linear-gradient(180deg,#0c2030 0%,#091925 100%); border-right: 1px solid var(--ec-border); }
+[data-testid="stSidebar"] > div:first-child { padding-top: 1.2rem; }
+[data-testid="stSidebar"] h1,[data-testid="stSidebar"] h2,[data-testid="stSidebar"] h3 { color: #f3f8fa; font-family: 'Manrope',sans-serif; }
+[data-testid="stSidebar"] [data-testid="stRadio"] label { padding: 9px 11px; border-radius: 9px; color: #bfd0d8; transition: .15s ease; }
+[data-testid="stSidebar"] [data-testid="stRadio"] label:hover { background: #163447; color: white; }
+.block-container { max-width: 1480px; padding-top: 1.8rem; padding-bottom: 3rem; }
+h1,h2,h3 { font-family: 'Manrope',sans-serif !important; letter-spacing: -.035em; color: #f0f7fa; }
+h1 { font-size: 2.05rem !important; font-weight: 800 !important; }
+h2 { font-size: 1.5rem !important; font-weight: 750 !important; }
+p,li { color: #c5d4dc; line-height: 1.65; }
+[data-testid="stMetric"] { background: linear-gradient(145deg,#132f42,#0e2535); border: 1px solid #244657; border-radius: 15px; padding: 17px 19px; min-height: 112px; box-shadow: 0 10px 28px rgba(0,0,0,.12); }
+[data-testid="stMetricLabel"] { color: #a9bdc8 !important; font-size: .82rem !important; }
+[data-testid="stMetricValue"] { color: #f4f9fb !important; font-family: 'Manrope',sans-serif; font-weight: 800; }
+[data-testid="stDataFrame"] { border: 1px solid #244657; border-radius: 12px; overflow: hidden; }
+[data-testid="stPlotlyChart"],[data-testid="stVegaLiteChart"] { background: #0e2535; border: 1px solid #244657; border-radius: 14px; padding: 9px; }
+[data-testid="stVerticalBlockBorderWrapper"] > div { border-color: #244657 !important; border-radius: 14px !important; }
+.stButton > button,[data-testid="stDownloadButton"] button { background: linear-gradient(100deg,#16a99a,#35d0bd); color: #06202a; border: 0; border-radius: 9px; font-weight: 700; padding: .55rem 1rem; }
+.stButton > button:hover,[data-testid="stDownloadButton"] button:hover { background: #70e3d5; color: #06202a; border: 0; }
+[data-baseweb="select"] > div,[data-baseweb="input"] > div,[data-baseweb="textarea"] > div { background: #102b3c; border-color: #315466; border-radius: 9px; }
+[data-testid="stFileUploader"] section { background: #102b3c; border: 1px dashed #3a6678; border-radius: 12px; }
+hr { border-color: #244657 !important; }
+.ec-brand { display:flex; align-items:center; gap:11px; margin: 0 0 18px; }
+.ec-logo { width:42px; height:42px; border-radius:13px; display:flex; align-items:center; justify-content:center; background:linear-gradient(145deg,#35d0bd,#4d91df); color:#061c27; font-weight:900; font-size:17px; box-shadow:0 7px 22px rgba(53,208,189,.2); }
+.ec-brand-name { color:#f3f8fa; font-family:'Manrope',sans-serif; font-size:1.28rem; font-weight:800; letter-spacing:-.05em; }
+.ec-brand-sub { color:#82a0ae; font-size:.61rem; letter-spacing:.14em; font-weight:700; }
+.ec-topline { color:#42d7c4; font-size:.68rem; letter-spacing:.16em; font-weight:800; text-transform:uppercase; margin-bottom:7px; }
+.ec-hero { padding:25px 28px; margin: 0 0 24px; border:1px solid #285064; border-radius:19px; background:linear-gradient(112deg,rgba(17,52,70,.98),rgba(10,34,50,.97) 62%,rgba(12,62,68,.94)); box-shadow:0 16px 42px rgba(0,0,0,.16); }
+.ec-hero-title { color:#f4f9fb; font-family:'Manrope',sans-serif; font-size:1.9rem; line-height:1.2; font-weight:800; letter-spacing:-.045em; margin:0 0 7px; }
+.ec-hero-copy { color:#adc2cc; font-size:.92rem; margin:0; max-width:850px; }
+.ec-status { display:inline-block; margin-top:14px; padding:5px 10px; border:1px solid rgba(53,208,189,.28); border-radius:30px; background:rgba(53,208,189,.09); color:#82e6d9; font-size:.69rem; font-weight:700; }
+.ec-footer { color:#7894a2; font-size:.72rem; border-top:1px solid #244657; margin-top:32px; padding-top:13px; }
+@media(max-width:800px){.block-container{padding:1rem}.ec-hero{padding:20px}.ec-hero-title{font-size:1.5rem}}
+</style>
+""", unsafe_allow_html=True)
 
-st.write(
-    "Upload compatible datasets, explore the data, "
-    "configure treatment and outcome variables, and "
-    "perform causal and uplift analysis."
-)
+st.markdown("""
+<div class="ec-brand">
+  <div class="ec-logo">EC</div>
+  <div><div class="ec-brand-name">EconoCausal</div>
+  <div class="ec-brand-sub">CAUSAL INTELLIGENCE PLATFORM</div></div>
+</div>
+""", unsafe_allow_html=True)
 
 # --------------------------------------------------
 # SIDEBAR NAVIGATION
 # --------------------------------------------------
 
-st.sidebar.title("Project Navigation")
+st.sidebar.markdown("""
+<div class="ec-brand">
+  <div class="ec-logo">EC</div>
+  <div><div class="ec-brand-name">EconoCausal</div>
+  <div class="ec-brand-sub">WORKSPACE</div></div>
+</div>
+""", unsafe_allow_html=True)
+st.sidebar.title("Navigation")
 
 section = st.sidebar.radio(
     "Select Section",
@@ -69,6 +124,20 @@ if uploaded_file is not None:
 
     except Exception as e:
         st.sidebar.error(f"Unable to load dataset: {e}")
+
+st.markdown(
+    f"""
+    <div class="ec-hero">
+      <div class="ec-topline">ECONOCAUSAL / ANALYTICS WORKSPACE</div>
+      <div class="ec-hero-title">{section}</div>
+      <p class="ec-hero-copy">Explore your data, define treatment and outcome variables,
+      estimate causal effects, understand uplift and make evidence-informed
+      budget decisions.</p>
+      <span class="ec-status">● &nbsp; {('DATASET CONNECTED' if df is not None else 'AWAITING DATASET')}</span>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
 
 
 # --------------------------------------------------
@@ -840,13 +909,8 @@ elif section == "Business Recommendations":
 # FOOTER
 # --------------------------------------------------
 
-st.divider()
-
-st.caption(
-    "EconoCausal | Multi-Dataset Causal Analysis Platform"
-)
-
-st.caption(
-    "Research application | Results require appropriate "
-    "statistical and business validation."
+st.markdown(
+    """<div class="ec-footer">ECONOCAUSAL &nbsp;·&nbsp; MULTI-DATASET CAUSAL ANALYSIS PLATFORM
+    <br>Research application | Results require appropriate statistical and business validation.</div>""",
+    unsafe_allow_html=True
 )
